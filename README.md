@@ -1,8 +1,9 @@
 # chicks-bricks
 
-![GitHub Issues](https://img.shields.io/github/issues/fini-net/chicks-bricks)
-![GitHub Pull Requests](https://img.shields.io/github/issues-pr/fini-net/chicks-bricks)
-![GitHub License](https://img.shields.io/github/license/fini-net/chicks-bricks)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/fini-net/chicks-bricks/badge)](https://scorecard.dev/viewer/?uri=github.com/fini-net/chicks-bricks)
+[![GitHub Issues](https://img.shields.io/github/issues/fini-net/chicks-bricks)](https://github.com/fini-net/chicks-bricks/issues)
+[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/fini-net/chicks-bricks)](https://github.com/fini-net/chicks-bricks/pulls)
+[![GitHub License](https://img.shields.io/github/license/fini-net/chicks-bricks)](https://github.com/fini-net/chicks-bricks?tab=GPL-2.0-1-ov-file)
 ![GitHub watchers](https://img.shields.io/github/watchers/fini-net/chicks-bricks)
 
 LEGO-related tools, data, and MOCs
