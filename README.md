@@ -5,7 +5,9 @@
 ![GitHub License](https://img.shields.io/github/license/fini-net/chicks-bricks)
 ![GitHub watchers](https://img.shields.io/github/watchers/fini-net/chicks-bricks)
 
-A good starting place for something. (TODO)
+LEGO-related tools, data, and MOCs
+
+TODO: create any content
 
 ## Contributing
 
