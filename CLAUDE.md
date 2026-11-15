@@ -177,6 +177,8 @@ Configuration in `.markdownlint.yml`:
 
 Run locally: `markdownlint-cli2 **/*.md`
 
+One deliberate exception to the markdownlint habit: GitHub descriptions - issue bodies, PR descriptions, release notes, comments, anything posted to github.com via `gh` or the web UI - must not be hard-wrapped. Keep each paragraph, list item, and table row on a single line, no matter how long it gets. GitHub renders markdown in a column narrower than the usual 80-character wrap, so pre-wrapped text word-wraps earlier than it should to fit the page and breaks sentences mid-line instead of flowing to the full page width. The wrapping preference applies to `.md` files in the repo, not to text posted to GitHub.
+
 ### Perl tools
 
 Perl code lives in `lib/Lego/` (modules), `bin/` (CLI entry points), and
