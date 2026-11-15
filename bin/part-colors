@@ -185,7 +185,7 @@ palette.
 
 =back
 
-MOC inventories are not exposed to standard API keys
+Rebrickable removed MOC inventories from API v3 in April 2020
 (L<https://github.com/fini-net/chicks-bricks/issues/2>), so for a MOC use
 C<--parts-file> with a CSV like the bundled
 F<examples/business_card_holder.parts.csv>.
@@ -227,7 +227,10 @@ Where to keep API responses (default: data/cache).
 
 =item --refresh
 
-Re-fetch even when a cached response exists.
+Re-fetch even when a cached response exists.  Cached entries include
+"not found" answers, so a part or set added to Rebrickable after a failed
+lookup stays unknown until this flag is used (or the cache file is
+deleted).
 
 =item --offline
 

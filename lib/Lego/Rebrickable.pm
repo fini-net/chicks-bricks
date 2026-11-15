@@ -9,7 +9,8 @@ package Lego::Rebrickable;
 # offline test suite never touch the network.  404s are cached too (as a
 # sentinel body), which lets tests replay "part not found" offline.
 #
-# MOC endpoints (/lego/mocs/...) are not available to standard API keys:
+# Rebrickable removed the MOC endpoints (/lego/mocs/...) from API v3 on
+# 2020-04-19; they now answer 403 for every key:
 # https://github.com/fini-net/chicks-bricks/issues/2
 
 use strict;
@@ -29,16 +30,33 @@ my $NOT_FOUND_JSON = '{"__status__":404}';
 
 sub new {
 	my ($class, %args) = @_;
+	# The default transport never follows redirects: a 3xx should fail
+	# loudly rather than re-send the Authorization key somewhere else.
+	my $ua = $args{ua} || HTTP::Tiny->new( timeout => 30, max_redirect => 0 );
 	my $self = bless {
 		api_key   => $args{api_key} || $ENV{REBRICKABLE_API_KEY},
 		base_url  => $args{base_url} || $DEFAULT_BASE,
 		cache_dir => $args{cache_dir},
 		refresh   => $args{refresh} ? 1 : 0,
 		offline   => $args{offline} ? 1 : 0,
-		ua        => $args{ua} || HTTP::Tiny->new( timeout => 30 ),
+		ua        => $ua,
 	}, $class;
 	$self->{base_url} =~ s{/+\z}{};
 	return $self;
+}
+
+# Part and set numbers are interpolated into request paths, so they must
+# look like catalog numbers and not URL plumbing.  (3684c01, 3068b, and
+# 850425-1 all pass.)
+my $SAFE_NUMBER = qr{\A[\w.-]+\z};
+
+sub _check_component {
+	my ( $self, $value, $kind ) = @_;
+	croak "invalid $kind number "
+		. ( defined $value ? "'$value'" : '(undef)' )
+		. ' (letters, digits, dots, and dashes only)'
+		if !defined $value || $value !~ $SAFE_NUMBER;
+	return;
 }
 
 # Fetch one absolute URL, honoring the cache.  Returns the decoded JSON, or
@@ -49,12 +67,17 @@ sub get_json {
 	if ( defined $self->{cache_dir} ) {
 		my $cache_file = $self->_cache_path($url);
 		if ( !$self->{refresh} && -f $cache_file ) {
-			open my $fh, '<', $cache_file
-				or croak "cannot read cache file '$cache_file': $!";
-			local $/;
-			my $body = <$fh>;
-			close $fh;
-			return $self->_decode( $body, $cache_file );
+			my ( $data, $status, $error ) = $self->_read_cache($cache_file);
+			if ( $status eq 'corrupt' ) {
+				# Only a genuinely broken cache entry reaches here; offline
+				# mode has no way to repair it, so it must die loudly.
+				croak "$error (offline mode)" if $self->{offline};
+				warn "$error - ignoring, refetching\n";
+			}
+			else {
+				return undef if $status eq 'notfound';
+				return $data;
+			}
 		}
 	}
 
@@ -76,8 +99,8 @@ sub get_json {
 		my $detail = eval { decode_json( $response->{content} ) };
 		my $hint   = $response->{status} == 429 ? 'rate limited; re-run later'
 			: $response->{status} == 403
-			? 'permission denied for this key '
-			. '(MOC endpoints need special access: '
+			? 'permission denied (MOC endpoints were removed from API v3 '
+			. 'in April 2020: '
 			. 'https://github.com/fini-net/chicks-bricks/issues/2)'
 			: undef;
 		croak "GET $url failed: $response->{status} $reason"
@@ -85,8 +108,10 @@ sub get_json {
 			. ( defined $hint ? " - $hint" : q{} );
 	}
 
+	my $data = eval { decode_json( $response->{content} ) };
+	croak "invalid JSON from $url: $@" if $@;
 	$self->_cache_write( $url, $response->{content} );
-	return $self->_decode( $response->{content}, $url );
+	return $data;
 }
 
 # GET a paginated list endpoint and return every row across all pages.  The
@@ -103,6 +128,12 @@ sub get_all {
 			if ref $data ne 'HASH' || ref $data->{results} ne 'ARRAY';
 		push @rows, @{ $data->{results} };
 		$url = $data->{next};
+		if ( defined $url ) {
+			# Never chase pagination off-site with the API key attached.
+			croak "refusing to follow pagination to '$url' "
+				. "(not under $self->{base_url})"
+				if index( $url, $self->{base_url} . q{/} ) != 0;
+		}
 	}
 	return \@rows;
 }
@@ -120,11 +151,12 @@ sub colors {
 	};
 }
 
-# All colors a part has appeared in, as an arrayref of entries, or undef for
-# an unknown part number.
+# All colors a part has appeared in, as an arrayref of entries, or undef
+# for an unknown part number.
 # https://rebrickable.com/api/v3/lego/parts/{part_num}/colors/
 sub part_colors {
 	my ($self, $part_num) = @_;
+	$self->_check_component( $part_num, 'part' );
 	return $self->{_part_colors}{$part_num}
 		//= $self->get_all("lego/parts/$part_num/colors/");
 }
@@ -133,6 +165,7 @@ sub part_colors {
 # https://rebrickable.com/api/v3/lego/sets/{set_num}/parts/
 sub set_parts {
 	my ($self, $set_num) = @_;
+	$self->_check_component( $set_num, 'set' );
 	return $self->{_set_parts}{$set_num}
 		//= $self->get_all("lego/sets/$set_num/parts/");
 }
@@ -143,25 +176,42 @@ sub _cache_path {
 	return File::Spec->catfile( $self->{cache_dir}, sha1_hex($url) . '.json' );
 }
 
+# Write cache files atomically (temp file + rename) so an interrupted run
+# can never leave a half-written entry behind.
 sub _cache_write {
 	my ($self, $url, $body) = @_;
 	return if !defined $self->{cache_dir};
 	my $cache_file = $self->_cache_path($url);
 	make_path( $self->{cache_dir} );
-	open my $fh, '>', $cache_file
-		or croak "cannot write cache file '$cache_file': $!";
+	my $tmp_file = "$cache_file.tmp$$";
+	open my $fh, '>', $tmp_file
+		or croak "cannot write cache file '$tmp_file': $!";
 	print {$fh} $body;
 	print {$fh} "\n" if $body !~ m{\n\z};
-	close $fh or croak "cannot close cache file '$cache_file': $!";
+	close $fh or croak "cannot close cache file '$tmp_file': $!";
+	rename( $tmp_file, $cache_file )
+		or croak "cannot install cache file '$cache_file': $!";
 }
 
-sub _decode {
-	my ($self, $body, $where) = @_;
+# Read one cache file.  Returns ( $data, $status, $error ): $status is 'ok',
+# 'notfound' (the cached 404 sentinel), or 'corrupt' (undecodable junk,
+# which callers treat as a miss unless they are offline).
+sub _read_cache {
+	my ( $self, $cache_file ) = @_;
+	open my $fh, '<', $cache_file
+		or croak "cannot read cache file '$cache_file': $!";
+	local $/;
+	my $body = <$fh>;
+	close $fh;
 	my $data = eval { decode_json($body) };
-	croak "invalid JSON from $where: $@" if $@;
-	return undef
+	if ( my $err = $@ ) {
+		my $why = "invalid JSON in cache file '$cache_file': $err";
+		$why =~ s{\s+\z}{};
+		return ( undef, 'corrupt', $why );
+	}
+	return ( undef, 'notfound', undef )
 		if ref $data eq 'HASH' && ( $data->{__status__} // 0 ) == 404;
-	return $data;
+	return ( $data, 'ok', undef );
 }
 
 1;
@@ -189,6 +239,15 @@ follows list pagination automatically, and keeps every response in a
 one-file-per-URL JSON cache so repeated runs are free and tests can run
 without network access (see C<Lego::Rebrickable-E<gt>new> C<offline>).
 
+Safety details worth knowing: part and set numbers are validated before
+they are interpolated into request paths (letters, digits, dots, and dashes
+only), pagination is never followed off C<base_url>, the default transport
+refuses redirects (so the API key is never re-sent elsewhere), and cache
+files are written atomically.  A corrupt cache entry is treated as a miss
+and refetched - unless the client is offline, where it dies loudly.
+Not-found answers are cached too: a part Rebrickable adds later stays
+"unknown" until C<refresh> is passed or the cache file is removed.
+
 =head1 METHODS
 
 =over 4
@@ -207,7 +266,9 @@ Hashref of all color metadata keyed by color id.
 =item part_colors($part_num)
 
 Arrayref of the colors a part has appeared in, or undef when the part number
-is not known to Rebrickable.
+is not known to Rebrickable.  Note that for the colors endpoint Rebrickable
+usually answers an unknown number with an empty list rather than an error;
+Lego::PartsList treats that as unknown.
 
 =item set_parts($set_num)
 

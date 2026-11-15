@@ -5,8 +5,10 @@
 use strict;
 use warnings;
 
-use File::Temp ();
-use JSON::PP   qw(encode_json);
+use Digest::SHA ();
+use File::Spec  ();
+use File::Temp  ();
+use JSON::PP    qw(encode_json);
 use Test::More;
 
 use Lego::Rebrickable;
@@ -34,7 +36,7 @@ use Lego::Rebrickable;
 	}
 }
 
-# A transport whose every request fails with 403, like the gated MOC
+# A transport whose every request fails with 403, like the removed MOC
 # endpoints described in https://github.com/fini-net/chicks-bricks/issues/2.
 {
 	package ForbiddenUa;
@@ -159,6 +161,100 @@ sub json_page {
 	);
 	eval { $api->get_json("$BASE/lego/colors/") };
 	like( $@, qr/no Rebrickable API key/, 'missing API key dies' );
+}
+
+# --- invalid part/set numbers never reach the network ------------------------
+{
+	my $ua  = TestUa->new( responses => {} );
+	my $api = Lego::Rebrickable->new(
+		base_url => $BASE, api_key => 'k', ua => $ua,
+	);
+	eval { $api->part_colors('3684/colors') };
+	like( $@, qr/invalid part number/, 'part number with a slash dies' );
+	eval { $api->part_colors('3684?x=1') };
+	like( $@, qr/invalid part number/, 'part number with a query dies' );
+	eval { $api->part_colors(undef) };
+	like( $@, qr/invalid part number/, 'undef part number dies' );
+	eval { $api->set_parts('850425-1#frag') };
+	like( $@, qr/invalid set number/, 'set number with a fragment dies' );
+	is( scalar @{ $ua->{requests} }, 0, 'no requests were made for bad input' );
+}
+
+# --- pagination is never followed off base_url -------------------------------
+{
+	my %pages = (
+		"$BASE/lego/parts/9999/colors/?page_size=1000" => json_page(
+			[ { color_id => 0, color_name => 'Black' } ],
+			'https://evil.example/v3/lego/parts/9999/colors/?page=2',
+		),
+	);
+	my $api = Lego::Rebrickable->new(
+		base_url => $BASE, api_key => 'k',
+		ua => TestUa->new( responses => \%pages ),
+	);
+	eval { $api->part_colors('9999') };
+	like( $@, qr/refusing to follow pagination to .*evil\.example/,
+		'off-site pagination next URL dies' );
+}
+
+# --- the default transport refuses redirects ----------------------------------
+{
+	my $api = Lego::Rebrickable->new;
+	is( $api->{ua}{max_redirect}, 0,
+		'default transport does not follow redirects (protects the API key)' );
+}
+
+# --- cache writes are atomic: no temp files survive ---------------------------
+{
+	my $dir = File::Temp->newdir;
+	Lego::Rebrickable->new(
+		base_url => $BASE, api_key => 'k', cache_dir => "$dir",
+		ua => TestUa->new( responses => {} ),
+	)->part_colors('nope');
+	my @leftovers = grep { m{\.tmp} } glob "$dir/*";
+	is( scalar @leftovers, 0, 'no temp files left behind after cache writes' );
+	ok( scalar( grep { m{\.json\z} } glob "$dir/*" ),
+		'cache file was installed via rename' );
+}
+
+# --- corrupt cache entries: warn and refetch (die offline) --------------------
+{
+	my $dir  = File::Temp->newdir;
+	my $url  = "$BASE/lego/parts/42/colors/?page_size=1000";
+	my $file = File::Spec->catfile( "$dir", Digest::SHA::sha1_hex($url) . '.json' );
+	open my $fh, '>', $file or die "cannot write $file: $!";
+	print {$fh} 'not json at all';
+	close $fh;
+
+	my %pages
+		= ( $url => json_page( [ { color_id => 1, color_name => 'Blue' } ], undef ) );
+	my $warnings = q{};
+	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
+	my $api = Lego::Rebrickable->new(
+		base_url => $BASE, api_key => 'k', cache_dir => "$dir",
+		ua => TestUa->new( responses => \%pages ),
+	);
+	my $rows = $api->part_colors('42');
+	is( $rows->[0]{color_name}, 'Blue', 'corrupt cache entry is refetched' );
+	like( $warnings, qr/invalid JSON in cache file/,
+		'corrupt cache entry warns' );
+
+	# the refetch replaces the corrupt file, so offline replay works now
+	my $offline = Lego::Rebrickable->new(
+		base_url => $BASE, cache_dir => "$dir", offline => 1, api_key => 'k',
+	);
+	is( $offline->part_colors('42')->[0]{color_name}, 'Blue',
+		'refetch replaced the corrupt cache file' );
+
+	# but offline + corrupt cache (no refetch possible) dies loudly
+	my $url2  = "$BASE/lego/parts/43/colors/?page_size=1000";
+	my $file2 = File::Spec->catfile( "$dir", Digest::SHA::sha1_hex($url2) . '.json' );
+	open my $fh2, '>', $file2 or die "cannot write $file2: $!";
+	print {$fh2} '{ still not json';
+	close $fh2;
+	eval { $offline->part_colors('43') };
+	like( $@, qr/invalid JSON in cache file .* \(offline mode\)/,
+		'offline corrupt cache entry dies' );
 }
 
 done_testing();

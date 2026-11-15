@@ -104,4 +104,32 @@ close $tmp5;
 eval { Lego::PartsList->from_file( $tmp5->filename ) };
 like( $@, qr/no parts found/, 'empty parts file dies' );
 
+# header detection accepts the documented spellings
+my $tmp6 = File::Temp->new;
+print {$tmp6} "Part Number,name,qty\n3622,Brick 1 x 3,2\n";
+close $tmp6;
+my $spelled_header = Lego::PartsList->from_file( $tmp6->filename );
+is( scalar @{$spelled_header}, 1, '"Part Number" header row is skipped' );
+is( $spelled_header->[0]{part_num}, '3622', 'data after header parses' );
+
+# qty must be a whole number
+my $tmp7 = File::Temp->new;
+print {$tmp7} "part_num,name,qty\n3010,Brick,abc\n";
+close $tmp7;
+eval { Lego::PartsList->from_file( $tmp7->filename ) };
+like( $@, qr/line 2: qty must be a whole number/, 'non-numeric qty dies' );
+
+my $tmp8 = File::Temp->new;
+print {$tmp8} "part_num,name,qty\n3010,Brick,2.5\n";
+close $tmp8;
+eval { Lego::PartsList->from_file( $tmp8->filename ) };
+like( $@, qr/qty must be a whole number/, 'fractional qty dies' );
+
+# empty part_num is a hard error, not a mystery lookup later
+my $tmp9 = File::Temp->new;
+print {$tmp9} "part_num,name,qty\n,Brick,2\n";
+close $tmp9;
+eval { Lego::PartsList->from_file( $tmp9->filename ) };
+like( $@, qr/line 2: empty part_num/, 'empty part_num dies' );
+
 done_testing();

@@ -57,8 +57,8 @@ Bottlenecks (fewest available colors first)
 Requires a free [Rebrickable API key](https://rebrickable.com/users/) in
 `REBRICKABLE_API_KEY` (sourcing a local `.env` works too). Responses are
 cached under `data/cache/`, so repeat runs are instant and quota-free.
-MOC inventories are not exposed to standard API keys, so MOC parts lists go
-through `--parts-file` (see [issue #2][issue-2]). There is much more in
+Rebrickable removed MOC inventories from API v3 in April 2020, so MOC parts
+lists go through `--parts-file` (see [issue #2][issue-2]). There is much more in
 `bin/part-colors --man`: JSON/CSV output, transparent-color filtering, a
 rarity filter, and an offline mode.
 

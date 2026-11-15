@@ -199,8 +199,8 @@ dependency; the system perl (>= 5.20) is enough.
 Run the suite with `just test` (`prove -lr t/`). Tests replay the
 committed fixtures offline; live API smoke tests in `t/live/` skip unless
 `LIVE_API=1` and `REBRICKABLE_API_KEY` are both set. CI runs the suite in
-`.github/workflows/perl-test.yml`. Standard API keys cannot read MOC
-inventories - background in [issue #2][issue-2].
+`.github/workflows/perl-test.yml`. Rebrickable removed MOC
+endpoints from API v3 on 2020-04-19 - background in [issue #2][issue-2].
 
 [issue-2]: https://github.com/fini-net/chicks-bricks/issues/2
 

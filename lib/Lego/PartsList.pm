@@ -31,14 +31,21 @@ sub from_file {
 		$line =~ s/\r?\n\z//;
 		next if $line =~ m{\A\s*\z} || $line =~ m{\A\s*#};
 		my @fields = $class->parse_csv($line);
-		if ( !$saw_header && lc( $fields[0] // q{} ) eq 'part_num' ) {
-			$saw_header = 1;
-			next;
+		if ( !$saw_header ) {
+			( my $head = lc( $fields[0] // q{} ) ) =~ s{[\s_]+}{_}g;
+			$head =~ s{_+\z}{};
+			if ( $head eq 'part' || $head eq 'part_num' || $head eq 'part_number' ) {
+				$saw_header = 1;
+				next;
+			}
 		}
 		croak "$path line $line_no: need part_num,name,qty[,color]"
 			if @fields < 3;
 		my ( $num, $name, $qty, $color )
 			= map { defined $_ && length $_ ? $_ : undef } @fields[ 0 .. 3 ];
+		croak "$path line $line_no: empty part_num" if !defined $num;
+		croak "$path line $line_no: qty must be a whole number"
+			if defined $qty && $qty !~ m{\A\d+\z};
 		push @rows, {
 			input_num => $num,
 			part_num  => $num,
@@ -57,8 +64,8 @@ sub from_file {
 sub from_set {
 	my ( $class, $api, $set_num ) = @_;
 	my $rows = $api->set_parts($set_num) or croak
-		"set '$set_num' not found (note: MOC inventories are not available "
-		. 'to standard API keys; use --parts-file for MOCs, see '
+		"set '$set_num' not found (note: Rebrickable removed MOC inventories "
+		. 'from API v3 in April 2020; use --parts-file for MOCs, see '
 		. 'https://github.com/fini-net/chicks-bricks/issues/2)';
 	my %by_part;
 	my @order;
@@ -202,9 +209,11 @@ variant part numbers to their Rebrickable equivalents where they differ.
 
 =item from_file($path)
 
-Read C<part_num,name,qty[,color]> rows from a CSV file.  A header row naming
-C<part_num> is recognized and skipped, as are blank lines and C<#> comments.
-Extra columns are ignored.
+Read C<part_num,name,qty[,color]> rows from a CSV file.  A header row
+naming the part column (C<part_num>, C<part num>, or C<part number>) is
+recognized and skipped, as are blank lines and C<#> comments.  Extra
+columns are ignored; C<qty> must be a whole number and defaults to 1 when
+empty.
 
 =item from_set($api, $set_num)
 
