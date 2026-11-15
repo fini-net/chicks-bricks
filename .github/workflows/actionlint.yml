@@ -1,0 +1,100 @@
+name: Lint GitHub Actions
+
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.github/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.github/**'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# global permissions
+permissions: {}
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Single source of truth for both tool versions; Renovate bumps these
+      # via the regex customManagers in .github/renovate.json.
+      ACTIONLINT_VERSION: 1.7.12
+      PYFLAKES_VERSION: 4.0.3
+    steps:
+      # Egress allowlist, by consuming step:
+      #   github.com:443                        - checkout git fetch; release download redirects
+      #   release-assets.githubusercontent.com  - actionlint release tarball + checksums.txt (GitHub's release CDN)
+      #   pypi.org:443, files.pythonhosted.org - pipx install pyflakes
+      # Note: GitHub/Azure runner infrastructure domains are auto-allowed by
+      # harden-runner; actionlint itself makes no network calls.
+      - name: Harden the runner (Block all outbound calls except the allowlist)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # shellcheck is preinstalled on hosted runners and actionlint uses it
+      # automatically for `run:` scripts; verify it's actually there so the
+      # checks fail loudly instead of being silently skipped.
+      - name: Verify shellcheck is available
+        run: shellcheck --version
+
+      # pyflakes is bundled in the old Docker image but NOT on hosted runners.
+      # Install it to keep Python `run:` checks; pinned so lint behavior is
+      # reproducible and Renovate keeps it current.
+      - name: Install pyflakes
+        run: pipx install "pyflakes==${PYFLAKES_VERSION}"
+
+      # Download the release tarball directly and verify it against the
+      # checksums published in the same release BEFORE first execution -
+      # one fetch, verified-then-extracted, replacing both the Docker Hub
+      # image (#399) and the download-actionlint.bash script this step
+      # superseded. The curl -O + sha256sum -c + tar shape is deliberate:
+      # Scorecard's Pinned-Dependencies check flags the
+      # `bash <(curl ...)` process-substitution form unconditionally - no
+      # URL pinning satisfies it (#447). The checksums file ships in the
+      # same release as the tarball, so verification catches CDN or
+      # transport tampering, not a compromised release - the same trust
+      # domain the old two-step verify had. --ignore-missing keeps the
+      # check to the single platform tarball in the multi-platform
+      # checksums file, and linux_amd64 is hardcoded on purpose:
+      # ubuntu-latest runners are x86_64, so a runner-image change
+      # would need this revisited. The binary lands in RUNNER_TEMP and
+      # the `executable` output is the contract the lint step below
+      # consumes.
+      - name: Download and verify actionlint
+        id: get_actionlint
+        run: |
+          set -euo pipefail
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          file="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          cd "${RUNNER_TEMP}"
+          curl -fsSL -O "${base}/${file}"
+          curl -fsSL -O "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          sha256sum -c --ignore-missing "actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          tar xvzf "${file}" actionlint
+          echo "executable=${RUNNER_TEMP}/actionlint" >> "${GITHUB_OUTPUT}"
+        shell: bash
+
+      - name: Check workflow files
+        env:
+          ACTIONLINT_EXECUTABLE: ${{ steps.get_actionlint.outputs.executable }}
+        run: |
+          echo "::add-matcher::.github/actionlint-matcher.json"
+          "${ACTIONLINT_EXECUTABLE}" -color
+        shell: bash

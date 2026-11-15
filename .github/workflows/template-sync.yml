@@ -1,0 +1,60 @@
+---
+name: Template Sync Tests
+
+on:
+  push:
+    paths:
+      - '.just/lib/*checksum*.sh'
+      - '.just/lib/template_*.sh'
+      - '.just/lib/common.sh'
+      - '.just/template-sync.just'
+      - '.just/clean-template.just'
+      - '.just/claude.just'
+      - '.just/copilot.just'
+      - '.just/gh-process.just'
+      - '.just/test/fixtures/template_sync/**'
+      - '.github/workflows/template-sync.yml'
+  pull_request:
+    paths:
+      - '.just/lib/*checksum*.sh'
+      - '.just/lib/template_*.sh'
+      - '.just/lib/common.sh'
+      - '.just/template-sync.just'
+      - '.just/clean-template.just'
+      - '.just/claude.just'
+      - '.just/copilot.just'
+      - '.just/gh-process.just'
+      - '.just/test/fixtures/template_sync/**'
+      - '.github/workflows/template-sync.yml'
+
+# global permissions
+permissions: {}
+
+jobs:
+  template-sync-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Full history for checksum generation
+          persist-credentials: false
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+
+      - name: Run template sync tests
+        run: just template_sync_test
+
+      - name: Generate checksums (validation)
+        run: just checksums_generate
+
+      - name: Verify checksums file is valid JSON
+        run: jq empty .just/CHECKSUMS.json
