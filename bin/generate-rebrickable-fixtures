@@ -1,0 +1,99 @@
+#!/usr/bin/env perl
+# generate-rebrickable-fixtures - refresh the offline test fixtures from the
+# live Rebrickable API.
+#
+# Writes one JSON cache file per API URL under t/fixtures/rebrickable, which
+# the test suite then replays with Lego::Rebrickable->new(offline => 1).
+# Needs REBRICKABLE_API_KEY in the environment (source .env first).
+
+use strict;
+use warnings;
+
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+
+use Lego::PartsList;
+use Lego::Rebrickable;
+
+binmode STDOUT, ':encoding(UTF-8)';
+
+my $FIXTURE_DIR = "$RealBin/../t/fixtures/rebrickable";
+
+my %opt = (
+	'parts-file' => "$RealBin/../examples/business_card_holder.parts.csv",
+);
+GetOptions( \%opt, 'parts-file=s', 'also=s@', 'refresh', 'help|?', 'man' )
+	or pod2usage(2);
+pod2usage(1)                             if $opt{help};
+pod2usage( -exitval => 0, -verbose => 2 ) if $opt{man};
+
+my $api = Lego::Rebrickable->new(
+	cache_dir => $FIXTURE_DIR,
+	( $opt{refresh} ? ( refresh => 1 ) : () ),
+);
+
+my $parts = Lego::PartsList->from_file( $opt{'parts-file'} );
+
+# Extra part numbers to probe (usually resolving to a cached 404), so the
+# offline tests can replay variant resolution such as LDraw's 3684c.
+if ( $opt{also} ) {
+	push @{$parts},
+		map { { input_num => $_, part_num => $_, name => '(probe)', qty => 0 } }
+		@{ $opt{also} };
+}
+
+Lego::PartsList->resolve( $api, $parts );
+
+my $fetched     = 0;
+my $unresolved  = 0;
+for my $part ( @{$parts} ) {
+	if ( defined $api->part_colors( $part->{part_num} ) ) {
+		$fetched++;
+		print "fetched colors for $part->{part_num} ($part->{name})\n";
+	}
+	else {
+		$unresolved++;
+		print "UNRESOLVED: $part->{input_num} ($part->{name})\n";
+	}
+}
+$api->colors();
+print "fetched color metadata\n";
+print "fixtures written under $FIXTURE_DIR "
+	. "($fetched resolved, $unresolved unresolved)\n";
+exit( $unresolved ? 1 : 0 );
+
+__END__
+
+=head1 NAME
+
+generate-rebrickable-fixtures - refresh offline test fixtures from the live API
+
+=head1 SYNOPSIS
+
+	source .env   # or: export REBRICKABLE_API_KEY=...
+	bin/generate-rebrickable-fixtures [--refresh] [--parts-file FILE]
+
+=head1 DESCRIPTION
+
+Populates F<t/fixtures/rebrickable> with the API responses the offline test
+suite replays: the colors each example part comes in, plus the global color
+metadata.  Default parts source is the bundled Business Card Holder
+example.  Run this by hand after Rebrickable data changes; commit the
+resulting fixture files.
+
+C<--refresh> re-fetches entries that are already cached.
+
+C<--also NUM> adds an extra part number to probe, so its variant-resolution
+trail (a cached empty colors response for the exact number, then a match on
+the base number) is recorded for the offline tests; e.g. C<--also 3684c>
+caches the response that Lego::PartsList->resolve replays when mapping
+LDraw's 3684c to 3684.
+
+=head1 SEE ALSO
+
+L<Lego::Rebrickable>
+
+=cut
