@@ -1,1 +1,0 @@
-gh-shim: release create v1.0.0+build.5 --generate-notes

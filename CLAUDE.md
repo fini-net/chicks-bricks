@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Purpose
 
-This is a GitHub repository template that implements best practices for open source projects. It's designed to be cloned and customized for new repositories. The template includes GitHub community standards compliance, automated workflows, and a command-line driven development process.
+LEGO-related tools, data, and MOCs. This repo was derived from the [fini-net/template-repo](https://github.com/fini-net/template-repo) template and customized with `just clean_template`, so the template's test harness, `CHECKSUMS.json` manifest, `RELEASE_NOTES.md`, and template-only workflows have been removed. The `.just/` scaffolding that remains drives the command-line development process and can be refreshed from the template with `just update_from_template`.
 
 ## Development Workflow
 
@@ -16,7 +16,6 @@ This repo uses `just` (command runner) for all development tasks. The workflow i
 
 1. `just branch <name>` - Create a new feature branch (format: `$USER/YYYY-MM-DD-<name>`)
 2. Make changes and commit. The first commit on a branch must start with an emoji followed by a `[topic_area]` tag (e.g., `🚀 [docs] update CLAUDE.md`, `🐛 [fix] correct typo`). The emoji is a free choice by the committer — there is no recipe that picks one for you. This first commit message becomes the PR title.
-    - For changes to a CHECKSUMS-tracked `.just/*` file: also bump the version and add a release-notes entry, as described in [Versioning `.just/*` changes](#versioning-just-changes).
 3. `just pr` - Create PR, push changes, and watch checks
 4. `just merge` - Squash merge PR, delete branch, return to main, and pull latest
 5. `just sync` - Return to main branch and pull latest (escape hatch)
@@ -25,42 +24,23 @@ This repo uses `just` (command runner) for all development tasks. The workflow i
 
 > **AI agents:** Do not run `just pr`. Hand off to the user so they can review and create the PR themselves.
 
-**Copilot Review:**
+**Claude Review** (enabled: `claude-review = true` in `.repo.toml`):
 
-1. User runs `just pr` - Create PR (triggers initial Copilot review if enabled)
-2. Make changes based on review feedback
-3. `just copilot_refresh` - Request fresh review after changes
-4. `just copilot_pick` - Browse suggestions interactively using gum
-5. Address suggestions and iterate
-
-**Claude Review:**
-
-1. User runs `just pr` - Create PR (triggers initial Claude review if enabled)
+1. User runs `just pr` - Create PR (`.github/workflows/claude-code-review.yml` reviews it)
 2. `just claude_review` - View Claude's latest PR code review comments
-3. Make changes based on review feedback
+3. Make changes based on review feedback, then `just again` to push, update the PR description, and watch checks
 4. Iterate as needed
+
+**Copilot Review** (disabled: `copilot-review = false` in `.repo.toml`): the `copilot_pick`, `copilot_refresh`, and `copilot_rollback` recipes still exist, but no Copilot review is requested on PRs in this repo.
 
 ### Additional commands
 
 - `just` or `just list` - Show all available recipes
+- `just claude` - Launch Claude Code in the repo root
 - `just prweb` - Open current PR in browser
 - `just again` - Push changes, update PR description, and watch GHAs
 - `just pr_update` - Update the "Done" section of PR description with current commits
 - `just pr_verify` - Add or append to "Verify" section from stdin (with timestamp)
-- `just copilot_pick` - Interactively browse and select Copilot PR review suggestions using gum
-- `just copilot_refresh` - Request a new Copilot review on current PR
-- `just claude_review` - View Claude's latest PR code review comments
-- `just pr_body_test` - Test PR body update logic
-- `just template_sync_test` - Test template sync logic
-- `just wait_for_copilot_test` - Test the shared Copilot-wait state machine
-- `just cue_sync_test` - Test cue-sync-from-github awk logic
-- `just repo_urls_test` - Test repo URL extraction and `[urls]` repointing
-- `just asciinema_cache_test` - Test the asciinema cache ignore guard
-- `just repo_toml_stub_test` - Test repo-toml stub sandboxing and check sentinel
-- `just compliance_test` - Test `compliance_check` heuristics (patterns extracted live from `compliance.just`)
-- `just release <version>` - Create a GitHub release with auto-generated notes
-- `just release_age` - Check how long ago the last release was
-- `just clean_template` - Generate a clean README from template (strips template documentation), repoint `.repo.toml` [urls] at this repo and sync its real description/topics from GitHub, and remove other files that are not required
 - `just compliance_check` - Run custom repo compliance checks
 - `just shellcheck` - Run shellcheck on all bash scripts in just recipes
 - `just cue-verify` - Verify `.repo.toml` validity and flag configuration
@@ -69,28 +49,38 @@ This repo uses `just` (command runner) for all development tasks. The workflow i
 - `just repo_toml_check` - Check if generated file is up-to-date
 - `just claude_permissions_sort` - Sort Claude Code permissions in canonical order
 - `just claude_permissions_check` - Check Claude Code permissions structure
+- `just editorconfig_check` - Verify `.editorconfig` compliance (also runs in `_pr-hook`)
+- `just release <version>` - Create a GitHub release with auto-generated notes
+- `just release_age` - Check how long ago the last release was
 - `just utcdate` - Print UTC date in ISO format (used in branch names)
-- `just checksums_generate` - Generate versioned checksums from git history (template-repo only)
-- `just checksums_verify` - Check local .just files against template versions
-- `just checksums_diff <file>` - Show diff between local and latest template version
-- `just update_from_template` - Update .just modules from template-repo (safe, preserves local mods)
+
+## Template maintenance
+
+This is a derived repo, so the template-sync recipes in `.just/template-sync.just` mostly reach out to the template itself:
+
+- `just update_from_template` - Update `.just/` modules from [fini-net/template-repo](https://github.com/fini-net/template-repo) (safe, preserves local mods)
+- `just checksums_verify` - Check local `.just/` files against template versions; fetches the checksum manifest from the template repo over the network
+- `just checksums_diff <file>` - Show diff between a local `.just/*` file and the latest template version (also a network fetch)
+- `just checksums_generate` - Template-repo only; prompts for confirmation here and would create a manifest that nothing in this repo consumes
+- `just template_sync_test` - Template-repo only; prints a notice and exits 0 here because the test harness and fixtures were removed by `clean_template`
+
+There is no local `.just/CHECKSUMS.json` or `.just/RELEASE_NOTES.md`; those files live only in the template repo. Version bumps and release-notes entries are template-repo concerns and do not apply to this repo.
 
 ## Architecture
 
 ### Modular justfile structure
 
-The main `justfile` imports ten modules:
+The main `justfile` imports nine modules (each with `import?`, so a module can be removed without breaking the rest):
 
-- `.just/compliance.just` - Custom compliance checks for repo health (validates all GitHub community standards)
+- `.just/compliance.just` - `compliance_check` (community-standards heuristics) and `editorconfig_check`
 - `.just/gh-process.just` - Git/GitHub workflow automation (core PR lifecycle)
-- `.just/pr-hook.just` - Optional pre-PR hooks for project-specific automation (e.g., Hugo rebuilds)
+- `.just/pr-hook.just` - Pre-PR hook: runs `shellcheck`, `editorconfig_check`, and `claude_permissions_sort` before every `just pr` / `just again`
 - `.just/shellcheck.just` - Shellcheck linting for bash scripts in just recipes
 - `.just/cue-verify.just` - File format validation using Cue
 - `.just/claude.just` - Claude Code permission management
-- `.just/copilot.just` - GitHub Copilot integration recipes (interactive suggestion picker, review refresh)
+- `.just/copilot.just` - GitHub Copilot integration recipes (review currently disabled via flag)
 - `.just/repo-toml.just` - Repository metadata extraction and shell variable generation
-- `.just/testing.just` - Test recipes for PR body updates and template sync logic
-- `.just/template-sync.just` - Template synchronization and update system
+- `.just/template-sync.just` - Template synchronization recipes (see [Template maintenance](#template-maintenance))
 
 ### Repository metadata extraction
 
@@ -110,13 +100,12 @@ The `.just/gh-process.just` module implements the entire PR lifecycle:
 - **Branch creation** - Dated branches with `$USER/YYYY-MM-DD-<name>` format
 - **PR creation** - First commit message becomes PR title, all commits listed in "Done" section of PR body
 - **Sanity checks** - Prevents empty PRs, enforces branch strategy via hidden recipes (`_on_a_branch`, `_has_commits`, `_main_branch`, `_on_a_pull_request`, `_wait_for_checks`)
-- **Check watching** - Polls GitHub checks every 5 seconds with smart waiting (waits up to 30s for checks to start)
-- **AI integration** - After PR checks complete, conditionally displays GitHub Copilot and Claude Code review comments based on `.repo.toml` flags (`copilot-review` and `claude-review`)
+- **Check watching** - Waits up to 30 seconds for checks to start, then watches them via `gh observer` if installed, falling back to `gh pr checks --watch -i 5`
+- **AI integration** - After PR checks complete, conditionally displays Copilot and Claude Code review comments based on `.repo.toml` flags (`copilot-review` and `claude-review`); only Claude runs in this repo
 - **Merge automation** - Squash merge, delete remote branch, return to main, pull latest
 - **PR updates** - `pr_update` refreshes the "Done" section with current commits; `pr_verify` adds timestamped verification outputs
-- **copilot_pick** - Fetches Copilot PR review suggestions and presents them in an interactive picker (requires gum)
 
-### Repository metadata system
+### Repository metadata
 
 The `.repo.toml` file contains structured metadata:
 
@@ -151,63 +140,30 @@ The `.just/claude.just` module manages `.claude/settings.local.json`:
 
 ### Standard release workflow
 
-The template includes a standard release workflow controlled by the `standard-release` flag:
+The release workflow is enabled (`standard-release = true` in `.repo.toml`):
 
-- **Default behavior** - When enabled (`standard-release = true`), provides `release` and `release_age` recipes
 - **Release creation** - `just release <version>` creates GitHub releases with auto-generated notes
 - **Signed assets** - The tag push fires `.github/workflows/release.yml`, which attaches a cosign-signed tarball, checksums, SBOM, GitHub-native attestations, and SLSA-3 provenance to the release (this is what satisfies OpenSSF Scorecard's Signed-Releases check)
 - **Release monitoring** - `just release_age` checks release freshness and commit count since last release
-- **Custom workflows** - Set `standard-release = false` in `.repo.toml` to disable standard recipes for projects with custom release mechanisms
-- **Graceful degradation** - When disabled, recipes display informational messages and exit cleanly (exit 0)
-
-### Template sync system
-
-The `.just/template-sync.just` module enables safe updates from template-repo:
-
-- **Multi-version checksums** - Tracks all historical versions of .just modules in `.just/CHECKSUMS.json`
-- **Safe updates** - Only modifies files matching a known template version
-- **Local preservation** - Files with modifications are skipped and reported
-- **Clear reporting** - Shows updated/skipped/new files with version info
-- **Diagnostic tools** - `checksums_verify` and `checksums_diff` for preview and inspection
-
-The system uses three core scripts in `.just/lib/`:
-
-- **generate_checksums.sh** - Extract checksums from git history with version tracking, and fail generation when the `CLEANED_FILES` list drifts from the files `clean_template` removes (#381)
-- **template_update.sh** - Core update logic (compare, download, verify, rollback on failure)
-- **template_sync_test.sh** - Test suite with fixtures in `.just/test/fixtures/template_sync/`
 
 ### GitHub Actions
 
 Workflows in `.github/workflows/`:
 
-- **markdownlint.yml** - Enforces markdown standards using `markdownlint-cli2`
-- **checkov.yml** - Security scanning for GitHub Actions (continues on error, outputs SARIF)
 - **actionlint.yml** - Lints GitHub Actions workflow files
 - **auto-assign.yml** - Automatically assigns issues/PRs to `chicks-net`
-- **claude-code-review.yml** - Claude AI review automation
-- **claude.yml** - Additional Claude integration
+- **checkov.yml** - Security scanning for GitHub Actions (continues on error, outputs SARIF)
+- **claude-code-review.yml** - Claude AI review automation on PRs
+- **claude.yml** - Claude integration for `@claude` mentions and issue/PR events
 - **cue-verify.yml** - Validates `.repo.toml` format and flags
-- **pr-body-tests.yml** - Tests PR body update logic
-- **template-sync.yml** - Tests template synchronization system
-- **wait-for-copilot-tests.yml** - Tests the shared Copilot-wait state machine
-- **renovate-validate.yml** - Validates `.github/renovate.json` config
+- **dependency-review.yml** - Scans dependency changes in PRs for known vulnerabilities
+- **editorconfig.yml** - Validates files against `.editorconfig`
+- **gitleaks.yml** - Secret scanning
+- **markdownlint.yml** - Enforces markdown standards using `markdownlint-cli2`
 - **release.yml** - Attaches signed assets (cosign bundle, checksums, SBOM, attestations, SLSA-3 provenance) to `v*` tag releases
-
-### Testing infrastructure
-
-The `.just/testing.just` module provides automated testing:
-
-- **pr_body_test** - Tests PR body update logic using `.just/lib/pr_body_test.sh`
-- **template_sync_test** - Tests template sync logic using `.just/lib/template_sync_test.sh` (update-script fixtures drive `template_update.sh`; recipe fixtures run the actual `just checksums_verify` / `checksums_diff` / `copilot_rollback` recipes, with an optional fixture `stdin` file for recipes that prompt; self-tests assert the harness matchers, the `common.sh` security boundary (#382), and the `CLEANED_FILES` drift-guard failure modes driven through the real `generate_checksums.sh` in scratch sandboxes (#381))
-- **wait_for_copilot_test** - Tests the shared Copilot-wait state machine using `.just/lib/wait_for_copilot_test.sh` (mocked `gh`/`sleep` via PATH shims)
-- **cue_sync_test** - Tests cue-sync-from-github awk logic using `.just/lib/cue_sync_test.sh` (missing and commented-out keys in `[about]`)
-- **repo_urls_test** - Tests `repo_urls.sh` extraction, mismatch classification, and `[urls]` repointing using `.just/lib/repo_urls_test.sh` (driven through the real cue-sync-from-github recipe in a shimmed workspace)
-- **asciinema_cache_test** - Tests the `_ensure_cache_ignored` recording guard using `.just/lib/asciinema_cache_test.sh`
-- **repo_toml_stub_test** - Tests repo-toml stub sandboxing and the `repo_toml_check` stub sentinel using `.just/lib/repo_toml_stub_test.sh`
-- **compliance_test** - Tests the `compliance_check` OpenSSF heuristics using `.just/lib/compliance_test.sh` (portable grep boundaries and media/executable classification, with patterns extracted live from `compliance.just` so recipe drift fails the suite)
-- **Test fixtures** - Located in `.just/test/fixtures/` (`pr_bodies/`, `template_sync/`, `wait_for_copilot/`, `cue_sync/`, `repo_urls/`, `asciinema_cache/`)
-
-All test recipes run via GitHub Actions on every PR to ensure core functionality works.
+- **renovate-validate.yml** - Validates `.github/renovate.json` config
+- **scorecards.yml** - OpenSSF Scorecard supply-chain security analysis
+- **zizmor.yml** - Security analysis of GitHub Actions workflows
 
 ### Markdown linting
 
@@ -221,59 +177,29 @@ Configuration in `.markdownlint.yml`:
 
 Run locally: `markdownlint-cli2 **/*.md`
 
-## Template customization
-
-When using this template for a new project:
-
-1. Search and replace:
-    - `fini-net` → your GitHub org
-    - `template-repo` → your repo name
-    - `chicks-net` → your username (especially in `.github/workflows/auto-assign.yml`)
-2. Update `.repo.toml` with your repository metadata
-3. Run `just clean_template` to strip template documentation and files from README, repoint `.repo.toml` [urls] at your repo, and sync its real description/topics from GitHub
-4. Run `just compliance_check` to verify all community standards files are in place
-
-## Important implementation notes
-
-- All git commands in `.just/gh-process.just` use standard git (no aliases required)
-- The `pr` recipe runs optional pre-PR hooks if `.just/pr-hook.just` exists
-- PR checks poll every 5 seconds for faster feedback, with smart startup waiting
-- The `.just` directory contains modular just recipes that can be copied to other projects for updates
-- just catches errors from commands when the recipe isn't a shebang form that runs another scripting engine
-- just colors come from built-in constants: `{{GREEN}}`, `{{BLUE}}`, `{{RED}}`, `{{YELLOW}}`, `{{NORMAL}}`
-- Hidden recipes (prefixed with `_`) are internal helpers and not shown in `just --list`
-- The `again` recipe is for iterating on PRs: push, update description, watch checks
-- AI agents (Claude Code, Copilot, etc.) must not run `just pr`; the user should create the PR themselves after reviewing changes
-
-## Versioning `.just/*` changes
-
-A version bump and release-notes entry are required whenever a **CHECKSUMS-tracked** `.just/*` file changes — i.e., any file listed in [`.just/CHECKSUMS.json`](.just/CHECKSUMS.json). That file is the single source of truth for the shipped template modules (`*.just` modules and `lib/*.sh` scripts, including `testing.just` and `clean-template.just` which `clean_template` later strips for derivative repos). Documentation, metadata, and generated files under `.just/` (`RELEASE_NOTES.md`, `README.md`, `CHECKSUMS.json` itself, generated `repo-toml.sh`, and `test/` fixtures) are **not** CHECKSUMS-tracked, so edits to them do **not** trigger a bump.
-
-A CHECKSUMS-tracked change requires **three** coupled actions on the same branch:
-
-1. **Bump the version.** Increment the `vX.Y` number in the `# PR create vX.Y` comment header in `.just/gh-process.just`. This comment drives the pr-creation help text, so keep the `PR create vX.Y` wording and only change the version digits. The first commit must use the `[just]` topic tag with the version token in `gh-process vX.Y` form in the first line (e.g., `🤜 [just] gh-process v7.9 add copilot_refresh hook`).
-2. **Add a release-notes entry.** Add a dated entry to `.just/RELEASE_NOTES.md` describing what changed and why, mirroring the style of existing entries.
-3. **Regenerate CHECKSUMS in a distinct commit.** Run `just checksums_generate` and commit the updated `.just/CHECKSUMS.json` as its own commit, separate from the main change commit. Follow the form `<emoji> [just] regenerate CHECKSUMS for vX.Y` (the emoji is a free choice by the committer — there is no recipe that picks one for you). Keeping the manifest update isolated from the substantive code change lets the two concerns be reviewed independently and ensures the manifest reflects the final state of the tracked files on the branch.
-
-These three actions always go together and apply equally to every CHECKSUMS-tracked file. A change to `compliance.just` (for example) still bumps the version in `gh-process.just` and still adds a `RELEASE_NOTES.md` entry — there is a single rolling version across all `.just/*` modules, not per-module versions.
-
-**One bump per PR.** The `vX.Y` token identifies what a PR ships, so a branch bumps the version at most once. Review-driven fixes folded into an open PR keep the same version: extend the existing `RELEASE_NOTES.md` entry in place rather than adding a new one, and re-run `just checksums_generate` in a fresh distinct commit (keeping the `regenerate CHECKSUMS for vX.Y` form — the version digits do not change). Start a new bump only on a later branch, after the previous version has merged.
-
-**RELEASE_NOTES.md indentation.** Numbered-list continuation lines in `RELEASE_NOTES.md` entries must be indented by a multiple of 2 spaces (2 or 4). Never use the 3-space indent that visually aligns under the list marker — `.editorconfig` sets `indent_size = 2` for `*.md`, and editorconfig-checker fails CI on any indent that is not a multiple of 2. This has regressed three times (#289 twice, #317 once), usually when a follow-up commit appends list items. `just editorconfig_check` now guards this in `_pr-hook`, which runs before every `just pr` / `just again` push.
-
 ## Dependencies
 
 ### Required tools
 
-- `just` - Command runner for all recipes (>= 1.29.0: the positional-argument recipes use the per-recipe `[positional-arguments]` attribute, #367)
+- `just` - Command runner for all recipes (>= 1.29.0: positional-argument recipes use the per-recipe `[positional-arguments]` attribute)
 - `gh` - GitHub CLI for PR and release management
 - `git` - Version control
 
 ### Optional tools
 
-- **gum** - Interactive selection tool for `copilot_pick` recipe
+- **gum** - Interactive spinner for check waiting and the `copilot_pick` picker
   - Install: `brew install gum` (macOS) or see <https://github.com/charmbracelet/gum>
-  - Usage: `just copilot_pick` (must be run from a branch with an open PR)
-- **asciinema** - Terminal recorder for `pr`/`again` recipes (only when `asciinema-record = true` in `.repo.toml`)
+- **asciinema** - Terminal recorder for `pr`/`again` recipes (only when `asciinema-record = true` in `.repo.toml`, which is currently `false` in this repo)
   - Install: `brew install asciinema` (macOS) or see <https://asciinema.org>
-  - Usage: set `asciinema-record = true`, then `just pr` / `just again` record into `.cache/<recipe>-<PR#>-<pid>.cast`
+  - Usage: casts are recorded into `.cache/<recipe>-<PR#>-<pid>.cast` when enabled; casts may capture sensitive output (gh, tokens, file dumps) - review before sharing
+
+## Important implementation notes
+
+- All git commands in `.just/gh-process.just` use standard git (no aliases required)
+- The `pr` recipe runs the `_pr-hook` recipe (shellcheck, editorconfig check, permission sort) before creating a PR; a failing hook blocks the PR
+- The `.just` directory contains the modular just recipes, kept in sync with the template via `just update_from_template`
+- just catches errors from commands when the recipe isn't a shebang form that runs another scripting engine
+- just colors come from built-in constants: `{{GREEN}}`, `{{BLUE}}`, `{{RED}}`, `{{YELLOW}}`, `{{NORMAL}}`
+- Hidden recipes (prefixed with `_`) are internal helpers and not shown in `just --list`
+- The `again` recipe is for iterating on PRs: push, update description, watch checks
+- AI agents (Claude Code, Copilot, etc.) must not run `just pr`; the user should create the PR themselves after reviewing changes

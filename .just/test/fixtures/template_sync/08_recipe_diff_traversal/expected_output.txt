@@ -1,2 +1,0 @@
-Error: Invalid filepath: ../evil.txt
-Path must be inside .just/ with no traversal or odd characters

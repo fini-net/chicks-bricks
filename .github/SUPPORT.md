@@ -5,8 +5,8 @@ Ways to get help with this project:
 - **Questions and discussion** — start with the [README](../README.md) and
   [CONTRIBUTING](CONTRIBUTING.md); if you're still stuck, open an issue with
   the "Blank issue" template and describe what you're trying to do.
-- **Bug reports and feature requests** — [search existing issues](https://github.com/fini-net/template-repo/issues?q=)
-  first, then use the [issue templates](https://github.com/fini-net/template-repo/issues/new/choose).
+- **Bug reports and feature requests** — [search existing issues](https://github.com/fini-net/chicks-bricks/issues?q=)
+  first, then use the [issue templates](https://github.com/fini-net/chicks-bricks/issues/new/choose).
   Include enough detail for someone else to reproduce the problem.
 - **Security vulnerabilities** — do NOT open a public issue; follow the
   [confidential disclosure process](SECURITY.md).

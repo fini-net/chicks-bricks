@@ -1,2 +1,0 @@
-Copilot was not found in reviewRequests and has no review on PR #
-Continuing (non-fatal mode).

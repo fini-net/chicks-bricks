@@ -1,2 +1,0 @@
-No existing releases found - skipping version order check
-gh-shim: release create v1.0.0 --generate-notes
