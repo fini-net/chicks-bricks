@@ -1,3 +1,0 @@
-claude-shim args:
-hello
-world

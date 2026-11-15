@@ -1,1 +1,0 @@
-gh-shim: release create v1.0.0-rc.1+build.5 --prerelease --generate-notes
