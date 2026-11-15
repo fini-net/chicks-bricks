@@ -45,6 +45,17 @@ GetOptions(
 pod2usage(1)                             if $opt{help};
 pod2usage( -exitval => 0, -verbose => 2 ) if $opt{man};
 
+# Validate options before any API work so a typo fails fast and free.
+pod2usage( -message => "unknown --format '$opt{format}' (want text, json, or csv)",
+	-exitval => 2, -verbose => 0 )
+	if $opt{format} !~ m{\A(?:text|json|csv)\z};
+pod2usage( -message => "--min-coverage must be 0..100, got '$opt{'min-coverage'}'",
+	-exitval => 2, -verbose => 0 )
+	if $opt{'min-coverage'} < 0 || $opt{'min-coverage'} > 100;
+pod2usage( -message => "--min-sets must be >= 0, got '$opt{'min-sets'}'",
+	-exitval => 2, -verbose => 0 )
+	if defined $opt{'min-sets'} && $opt{'min-sets'} < 0;
+
 my @sources = (
 	( map { [ set         => $_ ] } @{ $opt{set} // [] } ),
 	( map { [ parts_file => $_ ] } @{ $opt{'parts-file'} // [] } ),
@@ -78,7 +89,7 @@ for my $source (@sources) {
 my $title = defined $opt{title} ? $opt{title} : 'Parts: ' . join ' + ', @titles;
 
 my $parts = Lego::PartsList->aggregate( \@all_parts );
-Lego::PartsList->resolve( $api, $parts );
+$parts = Lego::PartsList->resolve( $api, $parts );    # re-aggregates collapsed variants
 
 my %resolved;
 my @unresolved;
@@ -106,6 +117,8 @@ if (@unresolved) {
 	print STDERR
 		"warning: no available colors for these parts (skipped):\n";
 	print STDERR "  $_->{input_num}  $_->{name}\n" for @unresolved;
+	print STDERR
+		"  (re-run with --refresh to check parts added to Rebrickable recently)\n";
 }
 
 my $compare = Lego::Compare->new(
@@ -132,9 +145,6 @@ elsif ( $format eq 'json' ) {
 }
 elsif ( $format eq 'csv' ) {
 	print $compare->render_csv;
-}
-else {
-	die "unknown --format '$format' (want text, json, or csv)\n";
 }
 
 exit 0;
@@ -239,7 +249,8 @@ fixture cache, as the test suite does.
 
 =item --api-key KEY
 
-Rebrickable API key; defaults to C<REBRICKABLE_API_KEY>.
+Rebrickable API key; defaults to C<REBRICKABLE_API_KEY>, which is
+preferred - command-line values are visible in process listings.
 
 =item --title STR
 

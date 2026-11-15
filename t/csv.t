@@ -132,4 +132,18 @@ close $tmp9;
 eval { Lego::PartsList->from_file( $tmp9->filename ) };
 like( $@, qr/line 2: empty part_num/, 'empty part_num dies' );
 
+# part numbers that cannot be used safely in request paths die with the
+# line number, at the CSV boundary
+my $tmp10 = File::Temp->new;
+print {$tmp10} "part_num,name,qty\n3684/5,Slope,1\n";
+close $tmp10;
+eval { Lego::PartsList->from_file( $tmp10->filename ) };
+like( $@, qr/line 2: invalid part number '3684\/5'/, 'slash in part number dies' );
+
+my $tmp11 = File::Temp->new;
+print {$tmp11} "part_num,name,qty\n30 10,Brick,1\n";
+close $tmp11;
+eval { Lego::PartsList->from_file( $tmp11->filename ) };
+like( $@, qr/line 2: invalid part number '30 10'/, 'space in part number dies' );
+
 done_testing();

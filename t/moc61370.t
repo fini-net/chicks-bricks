@@ -43,6 +43,34 @@ my $probe = Lego::PartsList->resolve( $api,
 is( $probe->[0]{part_num}, '3684',
 	'LDraw 3684c resolves to Rebrickable 3684' );
 
+# --- variant collapse merges quantities, not rows ----------------------------
+# A list holding both 3684c and 3684 must not lose either quantity when
+# both resolve onto 3684.
+{
+	my $collapsed = Lego::PartsList->resolve( $api, [
+		{ input_num => '3684c', part_num => '3684c',
+			name => 'Slope solid studs', qty => 5 },
+		{ input_num => '3684',  part_num => '3684',
+			name => 'Slope', qty => 3 },
+	] );
+	is( scalar @{$collapsed}, 1, 'variant collapse leaves one row' );
+	is( $collapsed->[0]{part_num}, '3684', 'collapse lands on the base number' );
+	is( $collapsed->[0]{qty},      8,      'collapse sums quantities' );
+}
+
+# --- malformed numbers surface as unresolved, not fatal ----------------------
+# resolve must not hand junk to the API layer (which would croak) and must
+# not even look it up (the URL would be a cache miss in offline mode).
+{
+	my $bogus = Lego::PartsList->resolve( $api, [
+		{ input_num => 'not a number!', part_num => 'not a number!',
+			name => 'bogus', qty => 1 },
+	] );
+	is( scalar @{$bogus}, 1, 'resolve survives a malformed part number' );
+	is( $bogus->[0]{part_num}, 'not a number!',
+		'malformed number stays as-is for the caller to report' );
+}
+
 # --- fetch colors for every part ----------------------------------------------
 Lego::PartsList->resolve( $api, $parts );
 my %resolved;
@@ -95,5 +123,22 @@ is( $? >> 8, 0, 'CLI exits cleanly against fixtures' );
 like( $cli_out, qr/MOC-61370/, 'CLI prints the title' );
 like( $cli_out, qr/Monochrome: available for all 11 parts/,
 	'CLI reports the monochrome section' );
+
+# --- CLI validates options before any API work --------------------------------
+{
+	my $out
+		= `$^X bin/part-colors --parts-file /no/such/file --format jsn 2>&1`;
+	isnt( $? >> 8, 0, 'invalid --format exits non-zero' );
+	like( $out, qr/unknown --format 'jsn'/, 'invalid --format message' );
+	unlike( $out, qr{/no/such/file}, 'format check fires before file loading' );
+
+	$out = `$^X bin/part-colors --parts-file examples/business_card_holder.parts.csv --min-coverage 101 --cache-dir t/fixtures/rebrickable --offline 2>&1`;
+	isnt( $? >> 8, 0, 'out-of-range --min-coverage exits non-zero' );
+	like( $out, qr/--min-coverage must be 0\.\.100/, 'coverage range message' );
+
+	$out = `$^X bin/part-colors --parts-file examples/business_card_holder.parts.csv --min-sets -1 --cache-dir t/fixtures/rebrickable --offline 2>&1`;
+	isnt( $? >> 8, 0, 'negative --min-sets exits non-zero' );
+	like( $out, qr/--min-sets must be >= 0/, 'min-sets message' );
+}
 
 done_testing();

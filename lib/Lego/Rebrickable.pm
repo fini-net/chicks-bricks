@@ -16,12 +16,13 @@ package Lego::Rebrickable;
 use strict;
 use warnings;
 
-use Carp         qw(croak);
-use Digest::SHA  qw(sha1_hex);
-use File::Path   qw(make_path);
-use File::Spec   ();
-use HTTP::Tiny   ();
-use JSON::PP     qw(decode_json);
+use Carp           qw(croak);
+use Digest::SHA    qw(sha1_hex);
+use File::Path     qw(make_path);
+use File::Spec     ();
+use HTTP::Tiny     ();
+use JSON::PP       qw(decode_json);
+use Lego::Constants qw($MOC_ISSUE_URL $SAFE_NUMBER);
 
 our $VERSION = '0.01';
 
@@ -45,10 +46,8 @@ sub new {
 	return $self;
 }
 
-# Part and set numbers are interpolated into request paths, so they must
-# look like catalog numbers and not URL plumbing.  (3684c01, 3068b, and
-# 850425-1 all pass.)
-my $SAFE_NUMBER = qr{\A[\w.-]+\z};
+# Part and set numbers are validated against Lego::Constants' $SAFE_NUMBER
+# before they are interpolated into request paths (see _check_component).
 
 sub _check_component {
 	my ( $self, $value, $kind ) = @_;
@@ -99,9 +98,8 @@ sub get_json {
 		my $detail = eval { decode_json( $response->{content} ) };
 		my $hint   = $response->{status} == 429 ? 'rate limited; re-run later'
 			: $response->{status} == 403
-			? 'permission denied (MOC endpoints were removed from API v3 '
-			. 'in April 2020: '
-			. 'https://github.com/fini-net/chicks-bricks/issues/2)'
+			? "permission denied (MOC endpoints were removed from API v3 "
+			. "in April 2020: $MOC_ISSUE_URL)"
 			: undef;
 		croak "GET $url failed: $response->{status} $reason"
 			. ( ref $detail eq 'HASH' && $detail->{detail} ? " ($detail->{detail})" : q{} )
@@ -189,8 +187,10 @@ sub _cache_write {
 	print {$fh} $body;
 	print {$fh} "\n" if $body !~ m{\n\z};
 	close $fh or croak "cannot close cache file '$tmp_file': $!";
-	rename( $tmp_file, $cache_file )
-		or croak "cannot install cache file '$cache_file': $!";
+	if ( !rename( $tmp_file, $cache_file ) ) {
+		unlink $tmp_file;    # never leave a temp file behind
+		croak "cannot install cache file '$cache_file': $!";
+	}
 }
 
 # Read one cache file.  Returns ( $data, $status, $error ): $status is 'ok',

@@ -37,15 +37,16 @@ my $api = Lego::Rebrickable->new(
 
 my $parts = Lego::PartsList->from_file( $opt{'parts-file'} );
 
-# Extra part numbers to probe (usually resolving to a cached 404), so the
-# offline tests can replay variant resolution such as LDraw's 3684c.
+# Extra part numbers to probe (usually resolving to a cached empty
+# response), so the offline tests can replay variant resolution such as
+# LDraw's 3684c.
 if ( $opt{also} ) {
 	push @{$parts},
 		map { { input_num => $_, part_num => $_, name => '(probe)', qty => 0 } }
 		@{ $opt{also} };
 }
 
-Lego::PartsList->resolve( $api, $parts );
+$parts = Lego::PartsList->resolve( $api, $parts );
 
 my $fetched     = 0;
 my $unresolved  = 0;

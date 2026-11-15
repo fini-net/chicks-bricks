@@ -14,7 +14,8 @@ package Lego::PartsList;
 use strict;
 use warnings;
 
-use Carp qw(croak);
+use Carp            qw(croak);
+use Lego::Constants qw($MOC_ISSUE_URL $SAFE_NUMBER);
 
 our $VERSION = '0.01';
 
@@ -44,6 +45,9 @@ sub from_file {
 		my ( $num, $name, $qty, $color )
 			= map { defined $_ && length $_ ? $_ : undef } @fields[ 0 .. 3 ];
 		croak "$path line $line_no: empty part_num" if !defined $num;
+		croak "$path line $line_no: invalid part number '$num' "
+			. '(letters, digits, dots, and dashes only)'
+			if $num !~ $SAFE_NUMBER;
 		croak "$path line $line_no: qty must be a whole number"
 			if defined $qty && $qty !~ m{\A\d+\z};
 		push @rows, {
@@ -65,8 +69,8 @@ sub from_set {
 	my ( $class, $api, $set_num ) = @_;
 	my $rows = $api->set_parts($set_num) or croak
 		"set '$set_num' not found (note: Rebrickable removed MOC inventories "
-		. 'from API v3 in April 2020; use --parts-file for MOCs, see '
-		. 'https://github.com/fini-net/chicks-bricks/issues/2)';
+		. "from API v3 in April 2020; use --parts-file for MOCs, see "
+		. "$MOC_ISSUE_URL)";
 	my %by_part;
 	my @order;
 	for my $row ( @{$rows} ) {
@@ -117,6 +121,10 @@ sub aggregate {
 # to 3684).  Rows that cannot be resolved keep their original number; the
 # caller reports them.
 #
+# The return value is the parts re-aggregated: when two rows collapse onto
+# the same resolved number (a list holding both 3684c and 3684), they
+# merge and their quantities sum instead of clobbering each other.
+#
 # Note: the part-colors endpoint answers unknown numbers (3684c) with an
 # empty list rather than a 404, so "known" means defined AND non-empty.
 sub resolve {
@@ -129,11 +137,14 @@ sub resolve {
 			last;
 		}
 	}
-	return $parts;
+	return $class->aggregate($parts);
 }
 
 sub _known {
 	my ( $class, $api, $num ) = @_;
+	# Never hand a malformed number to the API layer (which would croak);
+	# such rows stay unresolved and surface in the caller's warnings.
+	return 0 if !defined $num || $num !~ $SAFE_NUMBER;
 	my $colors = $api->part_colors($num);
 	return defined $colors && @{$colors} ? 1 : 0;
 }
@@ -228,7 +239,10 @@ Merge rows with the same part number, summing quantities.
 In-place variant-number resolution: when Rebrickable does not know a part
 number (its colors endpoint answers with an empty list), the LDraw/BrickLink
 variant suffixes are stripped and the base number is tried (3684c becomes
-3684).
+3684).  The return value is the parts re-aggregated, so rows that collapse
+onto the same resolved number merge their quantities instead of clobbering
+each other; callers should use the return value, not the list they passed
+in.
 
 =item parse_csv($line)
 

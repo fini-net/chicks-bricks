@@ -10,7 +10,7 @@ require Lego::Compare;
 require Lego::PartsList;
 require Lego::Rebrickable;
 
-for my $module (qw(Lego::Compare Lego::PartsList Lego::Rebrickable)) {
+for my $module (qw(Lego::Compare Lego::Constants Lego::PartsList Lego::Rebrickable)) {
 	require_ok($module);
 }
 
