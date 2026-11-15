@@ -177,6 +177,33 @@ Configuration in `.markdownlint.yml`:
 
 Run locally: `markdownlint-cli2 **/*.md`
 
+### Perl tools
+
+Perl code lives in `lib/Lego/` (modules), `bin/` (CLI entry points), and
+`t/` (tests). Core modules only - there is no cpanfile and no CPAN
+dependency; the system perl (>= 5.20) is enough.
+
+- `lib/Lego/Rebrickable.pm` - Rebrickable API v3 client. One JSON cache
+  file per URL (default `data/cache/`, gitignored), plus an `offline` mode
+  that dies on cache misses so tests stay hermetic
+- `lib/Lego/PartsList.pm` - parts lists from CSV files or set numbers, with
+  LDraw/BrickLink variant-number resolution (3684c becomes 3684)
+- `lib/Lego/Compare.pm` - pure set logic with no I/O: monochrome
+  intersection, near misses, bottlenecks
+- `bin/part-colors` - the comparison CLI built on those modules
+  (`--man` for full docs)
+- `bin/generate-rebrickable-fixtures` - refreshes the committed fixture
+  cache in `t/fixtures/rebrickable/` from the live API; needs
+  `REBRICKABLE_API_KEY` in the environment (a gitignored `.env` holds it)
+
+Run the suite with `just test` (`prove -lr t/`). Tests replay the
+committed fixtures offline; live API smoke tests in `t/live/` skip unless
+`LIVE_API=1` and `REBRICKABLE_API_KEY` are both set. CI runs the suite in
+`.github/workflows/perl-test.yml`. Standard API keys cannot read MOC
+inventories - background in [issue #2][issue-2].
+
+[issue-2]: https://github.com/fini-net/chicks-bricks/issues/2
+
 ## Dependencies
 
 ### Required tools
@@ -184,6 +211,7 @@ Run locally: `markdownlint-cli2 **/*.md`
 - `just` - Command runner for all recipes (>= 1.29.0: positional-argument recipes use the per-recipe `[positional-arguments]` attribute)
 - `gh` - GitHub CLI for PR and release management
 - `git` - Version control
+- `perl` - Runs the tools in `bin/` and the test suite (>= 5.20, core modules only; `prove` ships with perl)
 
 ### Optional tools
 

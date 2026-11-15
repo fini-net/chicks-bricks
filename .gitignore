@@ -21,6 +21,9 @@ go.work.sum
 # env file
 .env
 
+# part-colors API response cache (see bin/generate-rebrickable-fixtures)
+/data/
+
 # MacOS debris
 .DS_Store
 

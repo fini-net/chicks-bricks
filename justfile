@@ -20,3 +20,8 @@ import? '.just/template-sync.just'
 list:
     just --list
     @echo "{{GREEN}}Your justfile is waiting for more scripts and snippets{{NORMAL}}"
+
+# run the perl test suite (live API tests skip without REBRICKABLE_API_KEY)
+[group('Test')]
+test:
+    prove -lr t/
