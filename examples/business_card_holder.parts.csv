@@ -1,0 +1,19 @@
+# Parts list for MOC-61370 "Business Card Holder" by chicks.
+# https://rebrickable.com/mocs/MOC-61370/chicks/business-card-holder/#parts
+#
+# Derived from the version 1 parts table in
+# https://github.com/chicks-net/lego-business-card-holder (11 distinct
+# designs, 33 pieces).  Part numbers are Rebrickable's; LDraw's 3684c maps
+# to Rebrickable's 3684 (they only catalog the hollow-stud mold).
+part_num,name,qty,color
+3958,Plate 6 x 6,2,Lime
+3622,Brick 1 x 3,2,Lime
+3010,Brick 1 x 4,5,Lime
+3684,Slope Brick 75 2 x 2 x 3,12,Lime
+4865b,Panel 1 x 2 x 1 Rounded Corners,2,White
+3701,Technic Brick 1 x 4 with Holes,1,Light Gray
+3894,Technic Brick 1 x 6 with Holes,1,Light Gray
+3895,Technic Brick 1 x 12 with Holes,1,Light Gray
+6636,Tile 1 x 6,4,Bright Light Yellow
+3068b,Tile 2 x 2 with Groove,1,Bright Light Yellow
+87079,Tile 2 x 4 with Groove,2,White

@@ -1,0 +1,289 @@
+#!/usr/bin/env perl
+# part-colors - which colors is a set of LEGO parts available in?
+#
+# Takes a parts list (CSV file or Rebrickable set number), asks the
+# Rebrickable API which colors each part has appeared in, and reports the
+# monochrome options, near misses, and bottleneck parts.
+
+use strict;
+use warnings;
+
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+
+use Getopt::Long qw(GetOptions);
+use JSON::PP     ();
+use Pod::Usage;
+
+use Lego::Compare;
+use Lego::PartsList;
+use Lego::Rebrickable;
+
+binmode STDOUT, ':encoding(UTF-8)';
+
+my %opt = (
+	'cache-dir'    => 'data/cache',
+	'format'       => 'text',
+	'min-coverage' => 50,
+);
+GetOptions(
+	\%opt,
+	'set=s@',
+	'parts-file=s@',
+	'format=s',
+	'exclude-trans',
+	'min-sets=i',
+	'min-coverage=i',
+	'cache-dir=s',
+	'refresh',
+	'offline',
+	'api-key=s',
+	'title=s',
+	'help|?',
+	'man',
+) or pod2usage(2);
+pod2usage(1)                             if $opt{help};
+pod2usage( -exitval => 0, -verbose => 2 ) if $opt{man};
+
+# Validate options before any API work so a typo fails fast and free.
+pod2usage( -message => "unknown --format '$opt{format}' (want text, json, or csv)",
+	-exitval => 2, -verbose => 0 )
+	if $opt{format} !~ m{\A(?:text|json|csv)\z};
+pod2usage( -message => "--min-coverage must be 0..100, got '$opt{'min-coverage'}'",
+	-exitval => 2, -verbose => 0 )
+	if $opt{'min-coverage'} < 0 || $opt{'min-coverage'} > 100;
+pod2usage( -message => "--min-sets must be >= 0, got '$opt{'min-sets'}'",
+	-exitval => 2, -verbose => 0 )
+	if defined $opt{'min-sets'} && $opt{'min-sets'} < 0;
+
+my @sources = (
+	( map { [ set         => $_ ] } @{ $opt{set} // [] } ),
+	( map { [ parts_file => $_ ] } @{ $opt{'parts-file'} // [] } ),
+);
+pod2usage(
+	-message => 'nothing to do: give --set NUM and/or --parts-file FILE',
+	-exitval => 2,
+	-verbose => 0,
+) if !@sources;
+
+my $api = Lego::Rebrickable->new(
+	( defined $opt{'api-key'} ? ( api_key => $opt{'api-key'} ) : () ),
+	cache_dir => $opt{'cache-dir'},
+	( $opt{refresh} ? ( refresh => 1 ) : () ),
+	( $opt{offline} ? ( offline => 1 ) : () ),
+);
+
+my @all_parts;
+my @titles;
+for my $source (@sources) {
+	my ( $kind, $value ) = @{$source};
+	if ( $kind eq 'set' ) {
+		push @all_parts, @{ Lego::PartsList->from_set( $api, $value ) };
+		push @titles, "set $value";
+	}
+	else {
+		push @all_parts, @{ Lego::PartsList->from_file($value) };
+		push @titles, $value;
+	}
+}
+my $title = defined $opt{title} ? $opt{title} : 'Parts: ' . join ' + ', @titles;
+
+my $parts = Lego::PartsList->aggregate( \@all_parts );
+$parts = Lego::PartsList->resolve( $api, $parts );    # re-aggregates collapsed variants
+
+my %resolved;
+my @unresolved;
+for my $part ( @{$parts} ) {
+	my $entries = $api->part_colors( $part->{part_num} );
+	if ( !defined $entries || !@{$entries} ) {
+		push @unresolved, $part;
+		next;
+	}
+	my %colors;
+	for my $entry ( @{$entries} ) {
+		my $meta = $api->colors()->{ $entry->{color_id} };
+		$colors{ $entry->{color_id} } = {
+			name => $entry->{color_name}
+				|| ( defined $meta ? $meta->{name} : undef ),
+			num_sets => $entry->{num_sets},
+			is_trans => $meta && $meta->{is_trans} ? 1 : 0,
+		};
+	}
+	$part->{colors} = \%colors;
+	$resolved{ $part->{part_num} } = $part;
+}
+
+if (@unresolved) {
+	print STDERR
+		"warning: no available colors for these parts (skipped):\n";
+	print STDERR "  $_->{input_num}  $_->{name}\n" for @unresolved;
+	print STDERR
+		"  (re-run with --refresh to check parts added to Rebrickable recently)\n";
+}
+
+my $compare = Lego::Compare->new(
+	parts         => \%resolved,
+	exclude_trans => $opt{'exclude-trans'},
+	( defined $opt{'min-sets'} ? ( min_sets => $opt{'min-sets'} ) : () ),
+);
+
+my %render = (
+	title        => $title,
+	min_coverage => $opt{'min-coverage'},
+);
+
+my $format = $opt{format};
+if ( $format eq 'text' ) {
+	print $compare->render_text(%render);
+}
+elsif ( $format eq 'json' ) {
+	my $data = $compare->summary_data(%render);
+	$data->{unresolved} = [
+		map { { input_num => $_->{input_num}, name => $_->{name} } } @unresolved
+	];
+	print JSON::PP->new->pretty->canonical->encode($data);
+}
+elsif ( $format eq 'csv' ) {
+	print $compare->render_csv;
+}
+
+exit 0;
+
+__END__
+
+=head1 NAME
+
+part-colors - which colors is a set of LEGO parts available in?
+
+=head1 SYNOPSIS
+
+	part-colors [--set NUM | --parts-file FILE]... [options]
+
+	# MOC-61370 Business Card Holder from the bundled example:
+	part-colors --parts-file examples/business_card_holder.parts.csv
+
+	# Any official set, straight from the API:
+	part-colors --set 850425-1
+
+	# Machine-readable output and transparent-color filtering:
+	part-colors --set 850425-1 --format json --exclude-trans
+
+=head1 DESCRIPTION
+
+Answers the recoloring question: given a set of parts, which single colors
+can you get every one of them in?  Part/color availability comes from the
+Rebrickable API v3 (colors each part has appeared in, in sets), cached on
+disk so repeat runs are instant and quota-free.
+
+Output has three sections:
+
+=over 4
+
+=item Monochrome
+
+Colors in which every part in the list is available.
+
+=item Near misses
+
+Colors that almost work, ranked by coverage, with the parts that block
+them.
+
+=item Bottlenecks
+
+Parts with the fewest available colors - the ones that constrain your
+palette.
+
+=back
+
+Rebrickable removed MOC inventories from API v3 in April 2020
+(L<https://github.com/fini-net/chicks-bricks/issues/2>), so for a MOC use
+C<--parts-file> with a CSV like the bundled
+F<examples/business_card_holder.parts.csv>.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --set NUM
+
+Rebrickable set number (e.g. 850425-1).  Repeatable.
+
+=item --parts-file FILE
+
+CSV file of C<part_num,name,qty[,color]> rows.  A C<part_num> header row,
+blank lines, and C<#> comments are tolerated; LDraw/BrickLink variant
+numbers (3684c) resolve to their Rebrickable equivalent (3684) when only a
+variant differs.  Repeatable.
+
+=item --format text|json|csv
+
+Output format (default: text).
+
+=item --exclude-trans
+
+Ignore transparent colors.
+
+=item --min-sets N
+
+Ignore colors that appear in fewer than N sets (a rarity filter).
+
+=item --min-coverage PCT
+
+Near-miss threshold percentage (default: 50).
+
+=item --cache-dir DIR
+
+Where to keep API responses (default: data/cache).
+
+=item --refresh
+
+Re-fetch even when a cached response exists.  Cached entries include
+"not found" answers, so a part or set added to Rebrickable after a failed
+lookup stays unknown until this flag is used (or the cache file is
+deleted).
+
+=item --offline
+
+Never touch the network; fail on cache misses.  Useful with a committed
+fixture cache, as the test suite does.
+
+=item --api-key KEY
+
+Rebrickable API key; defaults to C<REBRICKABLE_API_KEY>, which is
+preferred - command-line values are visible in process listings.
+
+=item --title STR
+
+Report title (default: the set number(s) or file name(s)).
+
+=item --help, --man
+
+Usage / full manual.
+
+=back
+
+=head1 ENVIRONMENT
+
+=over 4
+
+=item REBRICKABLE_API_KEY
+
+Free API key from L<https://rebrickable.com/users/> (account settings,
+"API" tab).  Required unless every response is already cached or
+C<--offline> is used.
+
+=back
+
+=head1 EXAMPLES
+
+	part-colors --parts-file examples/business_card_holder.parts.csv \
+			--title 'MOC-61370 Business Card Holder'
+
+	part-colors --set 850425-1 --format csv --min-sets 10
+
+=head1 SEE ALSO
+
+L<https://rebrickable.com/api/v3/docs/>,
+L<Lego::Compare>, L<Lego::PartsList>, L<Lego::Rebrickable>
+
+=cut
