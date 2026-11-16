@@ -58,13 +58,29 @@ pod2usage( -message => "unknown --format '$opt{format}' (want text, json, or csv
 	-exitval => 2, -verbose => 0 )
 	if $opt{format} !~ m{\A(?:text|json|csv)\z};
 
-my @modes = grep { defined } ( $opt{search}, @{ $opt{'parts-file'} // [] }, @{ $opt{set} // [] } );
+# Ambiguous mode combinations are rejected rather than silently resolved:
+# --search used to win over everything else, and bare part numbers were
+# dropped when --parts-file/--set was also given.  Same fail-fast spirit
+# as the format check.
+my @files = @{ $opt{'parts-file'} // [] };
+my @sets  = @{ $opt{set} // [] };
+pod2usage(
+	-message => '--search cannot be combined with part numbers, --parts-file, or --set',
+	-exitval => 2,
+	-verbose => 0,
+) if defined $opt{search} && ( @ARGV || @files || @sets );
+pod2usage(
+	-message => 'bare part numbers cannot be combined with --parts-file or --set '
+		. '(put every number in the parts file)',
+	-exitval => 2,
+	-verbose => 0,
+) if @ARGV && ( @files || @sets );
 pod2usage(
 	-message => 'nothing to do: give part numbers, --search TERM, '
 		. 'and/or --parts-file FILE / --set NUM',
 	-exitval => 2,
 	-verbose => 0,
-) if !@modes && !@ARGV;
+) if !defined $opt{search} && !@files && !@sets && !@ARGV;
 
 my $ba = Lego::BrickArchitect->new(
 	cache_dir => $opt{'cache-dir'},
@@ -93,7 +109,9 @@ if ( defined $opt{search} ) {
 
 # --- lookup mode (bare part numbers) -------------------------------------------
 
-if ( @ARGV && !$opt{'parts-file'} && !$opt{set} ) {
+# Bare numbers only ever arrive here alone: every other combination was
+# rejected in the option validation above.
+if (@ARGV) {
 	my @rows;
 	for my $num (@ARGV) {
 		my $page = $ba->part($num);
@@ -128,11 +146,11 @@ if ( @ARGV && !$opt{'parts-file'} && !$opt{set} ) {
 
 my @parts;
 my @titles;
-if ( $opt{'parts-file'} ) {
-	push @parts,  map { @{ Lego::PartsList->from_file($_) } } @{ $opt{'parts-file'} };
-	push @titles, @{ $opt{'parts-file'} };
+if (@files) {
+	push @parts,  map { @{ Lego::PartsList->from_file($_) } } @files;
+	push @titles, @files;
 }
-if ( $opt{set} ) {
+if (@sets) {
 	require Lego::Rebrickable;
 	my $api = Lego::Rebrickable->new(
 		( defined $opt{'api-key'} ? ( api_key => $opt{'api-key'} ) : () ),
@@ -140,7 +158,7 @@ if ( $opt{set} ) {
 		( $opt{refresh} ? ( refresh => 1 ) : () ),
 		( $opt{offline} ? ( offline => 1 ) : () ),
 	);
-	for my $set_num ( @{ $opt{set} } ) {
+	for my $set_num (@sets) {
 		push @parts,  @{ Lego::PartsList->from_set( $api, $set_num ) };
 		push @titles, "set $set_num";
 	}
@@ -287,11 +305,14 @@ only part numbers are read from it, never the labels themselves.
 
 Bare arguments look each part up: Alphin's name, category breadcrumb,
 label and .lbx links, legacy membership, and (with C<--legacy>) the
-legacy drawer it lives in.
+legacy drawer it lives in.  Mutually exclusive with C<--search>,
+C<--parts-file>, and C<--set>.
 
 =item --search TERM
 
-Case-insensitive substring match over the guide's part names and numbers.
+Case-insensitive substring match over the guide's part names and
+numbers.  Mutually exclusive with everything else: part numbers,
+C<--parts-file>, and C<--set>.
 
 =item --parts-file FILE
 
@@ -313,9 +334,10 @@ gaps (the legacy labels are already on your drawers).
 
 =item --no-deep
 
-Skip per-part page fetches for parts missing from the guide index.
-Slower to cover old part numbers, but makes the first run on a large
-collection index-only.
+Skip the per-part page fetches for parts missing from the guide index.
+Those parts are then reported as having no label - even old numbers the
+guide would redirect (3684 -> 98560) - which keeps the first run on a
+large collection fast and index-only.
 
 =item --format text|json|csv
 
@@ -327,7 +349,10 @@ Where to keep responses (default: data/cache).
 
 =item --refresh
 
-Re-fetch even when a cached response exists.
+Re-fetch even when a cached response exists.  Cached "no label" answers
+re-check themselves after 30 days (see L<Lego::BrickArchitect>), so
+C<--refresh> is only needed sooner than that - or for successful
+responses, which never expire on their own.
 
 =item --offline
 

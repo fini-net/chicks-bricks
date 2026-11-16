@@ -85,6 +85,10 @@ sub _analyze_one {
 	}
 
 	if ( $self->{legacy} ) {
+		# Keyed by the input number (plus its variants), deliberately
+		# NOT the guide's alias: v40 predates the guide's renumbering,
+		# so the zip carries the old numbers (3684, not 98560) that
+		# printed collections were sorted by.
 		if ( my $legacy = $ba->legacy_lookup($num) ) {
 			$row->{in_legacy}       = 1;
 			$row->{legacy_category} = $legacy->{category};
@@ -295,11 +299,14 @@ sub render_csv {
 
 # The CSV quoting rules (RFC 4180-ish), shared with bin/brick-labels so
 # every writer quotes identically: quote fields containing commas,
-# quotes, or newlines, doubling embedded quotes.
+# quotes, or CR/LF (a bare \r would corrupt the row), doubling embedded
+# quotes.  No spreadsheet-formula guarding (prefixing a leading =, +, -,
+# or @): the names come from brickarchitect.com's own pages, mangling
+# them would break round-trips, so the theoretical risk is accepted.
 sub csv_escape {
 	my ($field) = @_;
 	return q{} if !defined $field;
-	return $field if $field !~ m{[",\n]};
+	return $field if $field !~ m{[",\r\n]};
 	$field =~ s/"/""/g;
 	return qq{"$field"};
 }
@@ -369,7 +376,10 @@ guide-only gaps in legacy mode (the legacy labels are already printed).
 =item csv_escape($field)
 
 The CSV quoting helper used by render_csv - public so bin/brick-labels
-quotes identically instead of duplicating the rules.
+quotes identically instead of duplicating the rules.  Quotes fields
+containing commas, quotes, or CR/LF, doubling embedded quotes; no
+spreadsheet-formula guarding, since names come from the guide itself
+and mangling them would break round-trips.
 
 =back
 

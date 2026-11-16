@@ -243,4 +243,33 @@ sub test_parts {
 		'labeled rows show name and breadcrumb' );
 }
 
+# --- csv_escape: the quoting rules (RFC 4180-ish) ----------------------------------
+{
+	is( Lego::LabelCoverage::csv_escape('plain'), 'plain',
+		'plain fields pass through untouched' );
+	is( Lego::LabelCoverage::csv_escape(q{}), q{}, 'empty fields stay empty' );
+	is( Lego::LabelCoverage::csv_escape('Tile 1 x 2, Round'),
+		'"Tile 1 x 2, Round"', 'commas quote' );
+	is( Lego::LabelCoverage::csv_escape('say "hi"'), '"say ""hi"""',
+		'quotes quote and double' );
+	is( Lego::LabelCoverage::csv_escape("with\nnewline"), "\"with\nnewline\"",
+		'LF quotes' );
+	is( Lego::LabelCoverage::csv_escape("with\rcarriage"),
+		"\"with\rcarriage\"",
+		'CR quotes too (a bare \r would corrupt the row)' );
+
+	# undef must become empty without a peep
+	my $warnings = q{};
+	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
+	is( Lego::LabelCoverage::csv_escape(undef), q{}, 'undef becomes empty' );
+	is( $warnings, q{}, 'without uninitialized warnings' );
+
+	# the quoted shapes round-trip through the repo's own parser
+	my @row = Lego::PartsList->parse_csv(
+		join ',', map { Lego::LabelCoverage::csv_escape($_) }
+			'Tile 1 x 2, Round', 'say "hi"' );
+	is_deeply( \@row, [ 'Tile 1 x 2, Round', 'say "hi"' ],
+		'quoted fields round-trip through parse_csv' );
+}
+
 done_testing();

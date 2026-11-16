@@ -11,7 +11,9 @@ package Lego::BrickArchitect;
 # Uses core Perl modules only (HTTP::Tiny, IO::Uncompress::Unzip, Encode).
 # Every response is cached on disk as one file per URL, so repeat runs and
 # the offline test suite never touch the network.  404s are cached too (as a
-# sentinel body), so "part not found" answers replay offline.
+# sentinel body), so "part not found" answers replay offline - but a
+# sentinel past notfound_ttl is re-checked on the next online run, since
+# the guide keeps adding parts.
 #
 # Unlike Lego::Rebrickable, redirects ARE followed here: the guide
 # canonicalizes old part numbers with 301s (/parts/3684 -> /parts/98560),
@@ -52,6 +54,13 @@ my $NOT_FOUND_BODY = "__BRICKARCHITECT_NOT_FOUND__\n";
 # Overridable per client (tests set it low to exercise the guard).
 my $MAX_MEMBER_BYTES = 64 * 1024 * 1024;
 
+# Cached 404s go stale after 30 days: the guide keeps adding parts, so a
+# remembered "no label" is worth re-checking occasionally, while successful
+# responses never expire (nothing is re-fetched without refresh - the
+# fetch-gently etiquette).  Overridable per client (tests set it low; 0
+# disables expiry).
+my $NOT_FOUND_TTL = 30 * 24 * 60 * 60;
+
 sub new {
 	my ( $class, %args ) = @_;
 	my $ua = $args{ua} || HTTP::Tiny->new(
@@ -74,6 +83,10 @@ sub new {
 		categories => $args{categories},
 		# Zip-member decompression ceiling (see $MAX_MEMBER_BYTES).
 		max_member_bytes => $args{max_member_bytes} || $MAX_MEMBER_BYTES,
+		# Seconds a cached 404 stays authoritative; 0 = never expires
+		# (see $NOT_FOUND_TTL).
+		notfound_ttl =>
+			defined $args{notfound_ttl} ? $args{notfound_ttl} : $NOT_FOUND_TTL,
 	}, $class;
 	$self->{base_url} =~ s{/+\z}{};
 	return $self;
@@ -83,7 +96,8 @@ sub new {
 
 # Fetch one absolute URL, honoring the cache.  Returns the body (decoded as
 # UTF-8 text unless binary => 1), or undef for a 404.  Dies on other errors
-# and on cache misses in offline mode.
+# and on cache misses in offline mode.  Cached 404s older than notfound_ttl
+# are re-checked when online.
 sub get {
 	my ( $self, $url, %args ) = @_;
 	my $ext = $args{ext} || 'html';
@@ -96,8 +110,19 @@ sub get {
 				croak "$error (offline mode)" if $self->{offline};
 				warn "$error - ignoring, refetching\n";
 			}
+			elsif ( $status eq 'notfound' ) {
+				# A cached 404 replays offline (nothing else to ask) and
+				# while fresh; past its TTL an online run re-checks the
+				# guide - it keeps adding parts, so "no label" answers
+				# go stale.  The refetch below re-caches either answer,
+				# which resets the entry's clock.
+				return undef
+					if $self->{offline}
+					|| !$self->{notfound_ttl}
+					|| time - ( stat $cache_file )[9] < $self->{notfound_ttl};
+				warn "cached 404 for $url has expired - re-checking\n";
+			}
 			else {
-				return undef if $status eq 'notfound';
 				return $data;
 			}
 		}
@@ -305,6 +330,13 @@ sub parse_category_page {
 	my ( $subcat, $group ) = ( undef, undef );
 	# Single-line and /x-free on purpose: the markup patterns contain
 	# literal spaces ("div class=...") that /x would silently strip.
+	# The alternation walks the page in document order; the shapes it
+	# matches, verbatim from a category page:
+	#   <h2 class="partcategoryname" ...><a ...>Brick</a></h2>     (subcategory)
+	#   <h3 class="partcategoryname" ...>... <a ...>1× Brick</a></h3>   (group)
+	#   <a href=".../parts/3005?&retired=1"><div class="partcontainer">
+	#     ... <div class="partname">1×1</div><div class="partnum">3005
+	#     <div class="retired indicator">R</div></div>...</a>     (part row)
 	my $row_re = qr{<h([23])\s+class="partcategoryname"[^>]*>(.*?)</h\1>|<a\s+href="[^"]*/parts/([\w.-]+)(?:\?[^"]*)?"[^>]*>(?:(?!</a>|<a\s).)*?<div class="partname">([^<]*)</div>\s*<div class="partnum">[^<]*(?:<div class="(new|retired) indicator">)?}s;
 	while ( $html =~ /$row_re/g ) {
 		if ( defined $1 ) {    # subcategory (h2) or group (h3) header
@@ -458,10 +490,12 @@ sub _drain {    # read one zip member to EOF (required before nextStream)
 		my $buf;
 		my $n = $z->read( $buf, 262144 );
 		last if !$n || $n < 0;
-		$data .= $buf;
+		# Check before appending so the ceiling is exact rather than
+		# "ceiling plus one read buffer".
 		croak "zip member exceeds $max_bytes bytes while decompressing - "
 			. 'is the download corrupt?'
-			if length($data) > $max_bytes;
+			if length($data) + $n > $max_bytes;
+		$data .= $buf;
 	}
 	return $data;
 }
@@ -627,9 +661,11 @@ response cache), C<refresh> (ignore existing cache entries), C<offline>
 second between consecutive live fetches - the default, per the project's
 fetch-gently etiquette; tests usually disable it), C<max_member_bytes>
 (the per-member decompression ceiling for zip walks; default 64 MiB),
-C<ua> (an C<HTTP::Tiny>-compatible object), and C<categories> (an
-arrayref of category ids to crawl instead of discovering them from the
-guide index - mainly for tests).
+C<notfound_ttl> (seconds a cached 404 stays authoritative - the guide
+keeps adding parts, so "no label" answers are re-checked after it;
+default 30 days, 0 = forever), C<ua> (an C<HTTP::Tiny>-compatible
+object), and C<categories> (an arrayref of category ids to crawl
+instead of discovering them from the guide index - mainly for tests).
 
 HTTPS note: fetching uses core C<HTTP::Tiny>, but C<https> itself needs
 C<IO::Socket::SSL> and C<Net::SSLeay>, which are not core on every perl.
@@ -669,7 +705,10 @@ group) the label lives in, for mapping a printed legacy set onto parts.
 =item legacy_lookup($part_num)
 
 A legacy row (category, group) for the part, or undef.  Variant numbers
-resolve the same way as index_lookup.
+resolve the same way as index_lookup.  The guide's renumbering aliases
+are deliberately not followed: v40 predates them, so the zip carries
+the old numbers (3684, not 98560) that printed collections were sorted
+by.
 
 =item legacy_version()
 

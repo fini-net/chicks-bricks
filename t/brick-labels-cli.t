@@ -133,6 +133,35 @@ sub run_cli {
 	return ( $exit, $out, $stderr );
 }
 
+# --- mode combinations are rejected, never silently resolved -----------------------
+{
+	# --search ignores everything else, so reject the combination outright
+	my ( $exit, $out, $stderr ) = run_cli( '--search', 'bracket', 3023 );
+	is( $exit, 2, 'search + bare part numbers exit 2' );
+	like( $stderr, qr/--search cannot be combined/, 'and say why' );
+
+	( $exit, $out, $stderr ) = run_cli( '--search', 'bracket',
+		'--parts-file', 'examples/business_card_holder.parts.csv' );
+	is( $exit, 2, 'search + --parts-file exits 2' );
+	like( $stderr, qr/--search cannot be combined/, 'and say why' );
+
+	# exits before any Rebrickable work, so no API key is needed to test
+	( $exit, $out, $stderr ) = run_cli( '--search', 'bracket', '--set', '850425-1' );
+	is( $exit, 2, 'search + --set exits 2' );
+	like( $stderr, qr/--search cannot be combined/, 'and say why' );
+
+	# bare numbers used to be dropped when a parts file was also given
+	( $exit, $out, $stderr ) = run_cli(
+		3023,
+		'--parts-file', 'examples/business_card_holder.parts.csv' );
+	is( $exit, 2, 'bare numbers + --parts-file exit 2' );
+	like( $stderr, qr/bare part numbers cannot be combined/, 'and say why' );
+
+	( $exit, $out, $stderr ) = run_cli( 3023, '--set', '850425-1' );
+	is( $exit, 2, 'bare numbers + --set exit 2' );
+	like( $stderr, qr/bare part numbers cannot be combined/, 'and say why' );
+}
+
 # --- lookup: text ---------------------------------------------------------------
 {
 	my ( $exit, $out ) = run_cli(3023);

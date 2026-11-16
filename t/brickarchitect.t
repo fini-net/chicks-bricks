@@ -274,6 +274,23 @@ sub ba_url {    # category URL for an id, on the default base
 	eval { $ba->parse_legacy_zip($zip) };
 	like( $@, qr/zip member exceeds 10000 bytes while decompressing/,
 		'oversized members die with the ceiling named' );
+
+	# the ceiling is exact, not "ceiling plus one read buffer": a member
+	# of exactly max bytes drains, one byte more dies
+	my $exact = q{};
+	my $ze    = IO::Compress::Zip->new( \$exact, Name => 'blob' );
+	$ze->print( 'x' x 10_000 );
+	$ze->close;
+	eval { $ba->parse_legacy_zip($exact) };
+	is( $@, q{}, 'a member of exactly the ceiling drains clean' );
+
+	my $over = q{};
+	my $zo   = IO::Compress::Zip->new( \$over, Name => 'blob' );
+	$zo->print( 'x' x 10_001 );
+	$zo->close;
+	eval { $ba->parse_legacy_zip($over) };
+	like( $@, qr/zip member exceeds 10000 bytes while decompressing/,
+		'one byte over the ceiling dies' );
 }
 
 # --- entities: numeric refs are clamped ------------------------------------------
@@ -439,6 +456,53 @@ sub ba_url {    # category URL for an id, on the default base
 	is( $offline2->legacy_lookup('3684')->{group}, 'ANGLE-slope',
 		'legacy zip replays from the binary cache offline' );
 	is( $offline2->legacy_version, '40', 'legacy version replays offline' );
+}
+
+# --- cached 404s re-check once past their TTL --------------------------------------
+{
+	my $dir = File::Temp->newdir;
+	my $url = "$BASE/parts/nope";
+	my $ua  = TestUa->new( responses => {} );    # 404s everything, records hits
+	my $ba  = new_ba(
+		cache_dir    => "$dir",
+		ua           => $ua,
+		notfound_ttl => 60,
+	);
+
+	is( $ba->part('nope'), undef, '404 under a TTL client' );
+	is( $ua->request_count($url), 1, 'one live fetch' );
+	is( $ba->part('nope'), undef, 'a fresh sentinel replays from cache' );
+	is( $ua->request_count($url), 1, 'without a second request' );
+
+	# age the sentinel past its TTL: the next online run re-checks
+	my $sentinel = File::Spec->catfile( "$dir",
+		Digest::SHA::sha1_hex($url) . '.html' );
+	utime( time - 120, time - 120, $sentinel );
+	my $warnings = q{};
+	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
+	is( $ba->part('nope'), undef, 'a stale sentinel still answers undef' );
+	is( $ua->request_count($url), 2, 'but re-checks the guide' );
+	like( $warnings, qr/cached 404 .* expired - re-checking/,
+		'the re-check announces itself' );
+
+	# the re-check re-cached a fresh sentinel, resetting the clock
+	is( $ba->part('nope'), undef, 'the renewed sentinel replays' );
+	is( $ua->request_count($url), 2, 'no further request until the next expiry' );
+
+	# offline runs replay even a stale sentinel - there is nothing to ask
+	utime( time - 120, time - 120, $sentinel );
+	is( new_ba( cache_dir => "$dir", offline => 1 )->part('nope'), undef,
+		'offline replays a stale sentinel' );
+
+	# ttl 0 = a 404 is trusted forever
+	utime( time - 120, time - 120, $sentinel );
+	my $forever = new_ba(
+		cache_dir    => "$dir",
+		ua           => $ua,
+		notfound_ttl => 0,
+	);
+	is( $forever->part('nope'), undef, 'ttl 0 replays the sentinel' );
+	is( $ua->request_count($url), 2, 'forever means no re-check' );
 }
 
 # --- gentle pacing between live fetches ------------------------------------------
