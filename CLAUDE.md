@@ -36,6 +36,7 @@ This repo uses `just` (command runner) for all development tasks. The workflow i
 ### Additional commands
 
 - `just` or `just list` - Show all available recipes
+- `just test` - Run the Perl test suite (see [Perl tools](#perl-tools))
 - `just claude` - Launch Claude Code in the repo root
 - `just prweb` - Open current PR in browser
 - `just again` - Push changes, update PR description, and watch GHAs
@@ -160,6 +161,7 @@ Workflows in `.github/workflows/`:
 - **editorconfig.yml** - Validates files against `.editorconfig`
 - **gitleaks.yml** - Secret scanning
 - **markdownlint.yml** - Enforces markdown standards using `markdownlint-cli2`
+- **perl-test.yml** - Runs the Perl test suite
 - **release.yml** - Attaches signed assets (cosign bundle, checksums, SBOM, attestations, SLSA-3 provenance) to `v*` tag releases
 - **renovate-validate.yml** - Validates `.github/renovate.json` config
 - **scorecards.yml** - OpenSSF Scorecard supply-chain security analysis
@@ -183,28 +185,64 @@ One deliberate exception to the markdownlint habit: GitHub descriptions - issue 
 
 Perl code lives in `lib/Lego/` (modules), `bin/` (CLI entry points), and
 `t/` (tests). Core modules only - there is no cpanfile and no CPAN
-dependency; the system perl (>= 5.20) is enough.
+dependency; the system perl (>= 5.20) is enough. The one wrinkle is that
+HTTPS fetching needs `IO::Socket::SSL` and `Net::SSLeay`, which aren't
+core everywhere; the tools detect that and exit with a message. Perl files
+are tab-indented per `.editorconfig`.
 
-- `lib/Lego/Rebrickable.pm` - Rebrickable API v3 client. One JSON cache
-  file per URL (default `data/cache/`, gitignored), plus an `offline` mode
-  that dies on cache misses so tests stay hermetic
-- `lib/Lego/PartsList.pm` - parts lists from CSV files or set numbers, with
-  LDraw/BrickLink variant-number resolution (3684c becomes 3684)
-- `lib/Lego/Compare.pm` - pure set logic with no I/O: monochrome
-  intersection, near misses, bottlenecks
-- `bin/part-colors` - the comparison CLI built on those modules
-  (`--man` for full docs)
+There are two CLIs, each a thin layer over a data-source client, a
+`PartsList`, and a pure analysis module:
+
+| CLI | Client (all I/O) | Analysis (no I/O) |
+| --- | --- | --- |
+| `bin/part-colors` | `Lego::Rebrickable` | `Lego::Compare` |
+| `bin/brick-labels` | `Lego::BrickArchitect` | `Lego::LabelCoverage` |
+
+- `lib/Lego/PartsList.pm` - parts lists from CSV files or Rebrickable set
+  numbers, with LDraw/BrickLink variant-number resolution (3684c becomes
+  3684). Both CLIs share it, so part-number handling stays consistent
+- `lib/Lego/Rebrickable.pm` - Rebrickable API v3 client. Never follows
+  redirects, so the `Authorization` key can't leak to another host
+- `lib/Lego/BrickArchitect.pm` - scrapes Tom Alphin's LEGO Parts Guide and
+  indexes the frozen v40 label zip. Unlike the Rebrickable client it
+  *does* follow redirects, because the guide 301s old part numbers to new
+  ones (`/parts/3684` -> `/parts/98560`) and that's how aliases are found.
+  The HTML parsers are intentionally small and die loudly if the markup
+  drifts. Label files are never stored or redistributed (see
+  [issue #5][issue-5]) - only part numbers are read from them
+- `lib/Lego/Constants.pm` - values shared across modules (`$SAFE_NUMBER`,
+  the regex every part/set number must pass before it goes into a URL, and
+  `$MOC_ISSUE_URL`). Only add things used by more than one module
 - `bin/generate-rebrickable-fixtures` - refreshes the committed fixture
   cache in `t/fixtures/rebrickable/` from the live API; needs
-  `REBRICKABLE_API_KEY` in the environment (a gitignored `.env` holds it)
+  `REBRICKABLE_API_KEY` in the environment (a gitignored `.env` holds it).
+  `t/fixtures/brickarchitect/` has no generator - those pages are
+  hand-curated
 
-Run the suite with `just test` (`prove -lr t/`). Tests replay the
-committed fixtures offline; live API smoke tests in `t/live/` skip unless
-`LIVE_API=1` and `REBRICKABLE_API_KEY` are both set. CI runs the suite in
-`.github/workflows/perl-test.yml`. Rebrickable removed MOC
-endpoints from API v3 on 2020-04-19 - background in [issue #2][issue-2].
+Both clients share the same caching design: one file per URL under
+`data/cache/` (gitignored), keyed by SHA-1 of the URL; 404s are cached as a
+sentinel body so "not found" replays offline; and an `offline` mode dies on
+any cache miss, which keeps tests hermetic. Each CLI's `--man` has the full
+option docs.
+
+Testing:
+
+- `just test` runs the whole suite (`prove -lr t/`) against the committed
+  fixtures, no network needed
+- One file: `prove -l t/label-coverage.t` (add `-v` for per-test output)
+- `t/brick-labels-cli.t` runs the actual script end to end against a cache
+  pre-seeded from fixtures; CLI output bugs only show up there
+- Live smoke tests in `t/live/` skip by default:
+  `LIVE_API=1 REBRICKABLE_API_KEY=... prove -l t/live/api.t`,
+  `LIVE_API=1 prove -l t/live/brickarchitect.t` (add `LIVE_LEGACY=1` to
+  also pull the 20 MB v40 zip)
+
+CI runs the suite in `.github/workflows/perl-test.yml`. Rebrickable removed
+MOC endpoints from API v3 on 2020-04-19, so MOC parts lists come in via
+`--parts-file` - background in [issue #2][issue-2].
 
 [issue-2]: https://github.com/fini-net/chicks-bricks/issues/2
+[issue-5]: https://github.com/fini-net/chicks-bricks/issues/5
 
 ## Dependencies
 
@@ -227,7 +265,7 @@ endpoints from API v3 on 2020-04-19 - background in [issue #2][issue-2].
 
 - All git commands in `.just/gh-process.just` use standard git (no aliases required)
 - The `pr` recipe runs the `_pr-hook` recipe (shellcheck, editorconfig check, permission sort) before creating a PR; a failing hook blocks the PR
-- The `.just` directory contains the modular just recipes, kept in sync with the template via `just update_from_template`
+- The `.just` directory contains the modular just recipes, kept in sync with the template via `just update_from_template`. Treat `.just/**` as vendored: fix problems upstream in the template rather than here. `.github/instructions/review-guidance.instructions.md` came from the template too (which is why it calls this repo "a template") and lists bash idioms in `.just/` that are intentional, not bugs
 - just catches errors from commands when the recipe isn't a shebang form that runs another scripting engine
 - just colors come from built-in constants: `{{GREEN}}`, `{{BLUE}}`, `{{RED}}`, `{{YELLOW}}`, `{{NORMAL}}`
 - Hidden recipes (prefixed with `_`) are internal helpers and not shown in `just --list`
