@@ -196,8 +196,14 @@ sub legacy_zip_bytes {
 	is( scalar @{$cats}, 3, 'categories discovered from the index page' );
 	is_deeply( $cats->[0], { id => 1, name => 'BASIC' }, 'category id + name' );
 
+	# The same fixture page serves all three discovered categories, so
+	# every part is "listed twice" - which exercises the duplicate warning.
+	my $warnings = q{};
+	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
 	my $index = $ba->index;
 	is( scalar keys %{$index}, 9, 'index holds the fixture parts once each' );
+	like( $warnings, qr/part 3005 listed in both Basic and Basic - keeping the first/,
+		'a part listed twice warns and keeps the first' );
 	ok( $index->{3622} && $index->{3622}{subcategory} eq 'Brick',
 		'index rows carry the breadcrumb' );
 	is( $ua->request_count("$BASE/parts/"), 1, 'index page fetched once' );
@@ -211,6 +217,76 @@ sub legacy_zip_bytes {
 sub ba_url {    # category URL for an id, on the default base
 	my ($id) = @_;
 	return "$BASE/parts/category-$id?&retired=1";
+}
+
+# --- parsers: legacy zip, robust against bad drawers ----------------------------
+{
+	my $ba = Lego::BrickArchitect->new( gentle => 0 );
+
+	# three drawers: one good, one with no label.xml, one corrupt
+	require IO::Compress::Zip;
+	my $good_lbx = q{};
+	my $zg = IO::Compress::Zip->new( \$good_lbx, Name => 'label.xml' );
+	$zg->print('originalName="3005.png" ');
+	$zg->close;
+	my $empty_lbx = q{};
+	my $ze = IO::Compress::Zip->new( \$empty_lbx, Name => 'Object0.bmp' );
+	$ze->print('BM-no-label-xml-in-here');
+	$ze->close;
+	my $outer = q{};
+	my $zo    = IO::Compress::Zip->new( \$outer,
+		Name => 'LEGO_BRICK_LABELS-v40/ABOUT.txt' );
+	$zo->print("about\n");
+	$zo->newStream( Name => 'LEGO_BRICK_LABELS-v40/Labels/1. BASIC/GOOD.lbx' );
+	$zo->print($good_lbx);
+	$zo->newStream( Name => 'LEGO_BRICK_LABELS-v40/Labels/1. BASIC/EMPTY.lbx' );
+	$zo->print($empty_lbx);
+	$zo->newStream( Name => 'LEGO_BRICK_LABELS-v40/Labels/1. BASIC/BROKEN.lbx' );
+	$zo->print('this is not a zip at all');
+	$zo->close;
+
+	my $warnings = q{};
+	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
+	my ( $parts, $version ) = $ba->parse_legacy_zip($outer);
+	is( $version, '40', 'the walk completed past the bad drawers' );
+	is( $parts->{'3005'}{group}, 'GOOD', 'the good drawer is indexed' );
+	is( scalar keys %{$parts}, 1, 'bad drawers contribute no parts' );
+	like( $warnings, qr/no label\.xml in drawer 'EMPTY'/,
+		'a drawer without label.xml warns' );
+	like( $warnings, qr/no label\.xml in drawer 'BROKEN'/,
+		'a corrupt .lbx warns the same way' );
+	unlike( $warnings, qr/Use of uninitialized/,
+		'no uninitialized-value warnings from bad drawers' );
+}
+
+# --- parsers: the decompression ceiling -----------------------------------------
+{
+	require IO::Compress::Zip;
+	my $zip = q{};
+	my $z   = IO::Compress::Zip->new( \$zip, Name => 'blob' );
+	$z->print( 'x' x 100_000 );
+	$z->close;
+
+	my $ba = Lego::BrickArchitect->new(
+		gentle           => 0,
+		max_member_bytes => 10_000,
+	);
+	eval { $ba->parse_legacy_zip($zip) };
+	like( $@, qr/zip member exceeds 10000 bytes while decompressing/,
+		'oversized members die with the ceiling named' );
+}
+
+# --- entities: numeric refs are clamped ------------------------------------------
+{
+	my $warnings = q{};
+	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
+	is( Lego::BrickArchitect::_decode_entities('&#99999999999;'), "\x{FFFD}",
+		'absurd numeric entity clamps to the replacement char' );
+	is( Lego::BrickArchitect::_decode_entities('&#x110000;'), "\x{FFFD}",
+		'past the Unicode ceiling clamps too' );
+	is( Lego::BrickArchitect::_decode_entities('&#8212;'), "\x{2014}",
+		'valid numeric entities still decode' );
+	is( $warnings, q{}, 'no warnings from clamping' );
 }
 
 # --- variant resolution (index + legacy) -----------------------------------------
@@ -383,6 +459,42 @@ sub ba_url {    # category URL for an id, on the default base
 	$fast->get("$BASE/parts/slow1");
 	$fast->get("$BASE/parts/slow2");
 	cmp_ok( time - $start2, '<', 0.9, 'gentle => 0 fetches back to back' );
+}
+
+# --- server errors die with the status; missing SSL says so ---------------------
+{
+	{
+		package ServerErrorUa;
+		sub new { return bless { requests => [] }, shift }
+		sub get {
+			my ( $self, $url ) = @_;
+			push @{ $self->{requests} }, { url => $url };
+			return { success => 0, status => 500, reason => 'Internal Server Error',
+				content => q{} };
+		}
+	}
+
+	my $ba = new_ba( ua => ServerErrorUa->new );
+	eval { $ba->part('3023') };
+	like( $@, qr{GET \Q$BASE/parts/3023\E failed: 500 Internal Server Error},
+		'non-404 errors die with status and reason' );
+	is( scalar @{ $ba->{ua}{requests} }, 1, 'the request was attempted once' );
+
+	# HTTP::Tiny's 599 with no SSL stack: name the fix instead of the code
+	{
+		package SsllessUa;
+		sub new { return bless {}, shift }
+		sub get {
+			return { success => 0, status => 599, reason => 'Internal Exception',
+				content => q{} };
+		}
+	}
+	no warnings 'redefine';
+	local *HTTP::Tiny::can_ssl = sub { 0 };
+	my $no_ssl = new_ba( ua => SsllessUa->new );
+	eval { $no_ssl->get("$BASE/parts/3023") };
+	like( $@, qr/lacks HTTPS support.*IO::Socket::SSL.*Net::SSLeay/s,
+		'599 without SSL support explains the install' );
 }
 
 # --- corrupt cache entries ------------------------------------------------------

@@ -46,6 +46,12 @@ my $LEGACY_ZIP   = 'https://brickarchitect.com/files/LEGO_BRICK_LABELS.zip';
 # Cached 404 body: recognizable by _read_cache, meaningless to anyone else.
 my $NOT_FOUND_BODY = "__BRICKARCHITECT_NOT_FOUND__\n";
 
+# Decompression cap: zip members are read into memory, so a corrupted or
+# hostile download could otherwise balloon.  The largest real member is
+# about 1.5 MB, so 64 MiB is generous headroom while still bounded.
+# Overridable per client (tests set it low to exercise the guard).
+my $MAX_MEMBER_BYTES = 64 * 1024 * 1024;
+
 sub new {
 	my ( $class, %args ) = @_;
 	my $ua = $args{ua} || HTTP::Tiny->new(
@@ -66,6 +72,8 @@ sub new {
 		# Category ids to crawl instead of discovering them from /parts
 		# (tests pass one id so a single fixture page serves the index).
 		categories => $args{categories},
+		# Zip-member decompression ceiling (see $MAX_MEMBER_BYTES).
+		max_member_bytes => $args{max_member_bytes} || $MAX_MEMBER_BYTES,
 	}, $class;
 	$self->{base_url} =~ s{/+\z}{};
 	return $self;
@@ -112,6 +120,17 @@ sub get {
 	}
 	if ( !$response->{success} ) {
 		my $reason = $response->{reason} // 'unknown error';
+		# HTTP::Tiny's 599 means its own transport failed; for https that
+		# is usually missing IO::Socket::SSL/Net::SSLeay, which are not
+		# core on every perl.  Name the fix instead of the bare status.
+		if (   $response->{status} == 599
+			&& !HTTP::Tiny->can_ssl
+			&& $url =~ m{\Ahttps://} )
+		{
+			croak "GET $url failed: this perl lacks HTTPS support - "
+				. 'install IO::Socket::SSL and Net::SSLeay '
+				. '(e.g. cpan IO::Socket::SSL Net::SSLeay)';
+		}
 		croak "GET $url failed: $response->{status} $reason";
 	}
 	$self->_cache_write( $url, $response->{content}, $ext,
@@ -171,9 +190,16 @@ sub index {
 				if !defined $html;
 			my $rows = $self->parse_category_page($html);
 			for my $num ( sort keys %{ $rows->{parts} } ) {
-				# A part listed under several categories keeps its first
-				# home; the guide currently lists each part once.
-				$index{$num} ||= $rows->{parts}{$num};
+				# The guide currently lists each part exactly once; a
+				# duplicate would mean the layout changed, so say so and
+				# keep the first home.
+				if ( $index{$num} ) {
+					warn "part $num listed in both "
+						. "$index{$num}{category} and $rows->{category} "
+						. "- keeping the first\n";
+					next;
+				}
+				$index{$num} = $rows->{parts}{$num};
 			}
 		}
 		croak 'the parts guide index came back empty - did the layout change?'
@@ -355,9 +381,16 @@ sub parse_legacy_zip {
 	my ( %parts, $version );
 	my $z = IO::Uncompress::Unzip->new(\$zip_bytes)
 		or croak "cannot open legacy labels zip: $UnzipError";
+	my $max = $self->{max_member_bytes};
 	while (1) {
-		my $name = $z->getHeaderInfo->{Name} // q{};
-		my $data = _drain($z);
+		# Unzip defers garbage detection: new() can succeed on non-zip
+		# bytes and only getHeaderInfo gives undef - so guard it.
+		my $info = $z->getHeaderInfo;
+		croak 'cannot open legacy labels zip: unreadable member headers '
+			. '(is the download corrupt?)'
+			if !defined $info;
+		my $name = $info->{Name} // q{};
+		my $data = _drain( $z, $max );
 		( $name =~ /LEGO_BRICK_LABELS-v(\d+)/i ) && ( $version //= $1 );
 
 		if ( $name =~ m{(?:\A|/)Labels/([^/]+)/([^/]+)\.lbx\z}
@@ -365,9 +398,19 @@ sub parse_legacy_zip {
 			my ( $cat, $group ) = ( $1, $2 );
 			( my $clean = $cat ) =~ s{\A\d+\.\s*}{};
 			my $xml = $self->_lbx_label_xml($data);
-			for my $num ( $xml =~ /originalName="([\w.-]+)\.png"/g ) {
-				# A part shown in two drawers keeps the first one seen.
-				$parts{$num} ||= { category => $clean, group => $group };
+			if ( !defined $xml ) {
+				# An unreadable drawer is worth hearing about - but the
+				# walk must continue, and never "next" from here or the
+				# nextStream advance at the bottom of the loop is
+				# skipped and the walk spins on this member forever.
+				warn "legacy zip: no label.xml in drawer '$group' - "
+					. "skipping the drawer\n";
+			}
+			else {
+				for my $num ( $xml =~ /originalName="([\w.-]+)\.png"/g ) {
+					# A part shown in two drawers keeps the first one seen.
+					$parts{$num} ||= { category => $clean, group => $group };
+				}
 			}
 		}
 		my $st = $z->nextStream;
@@ -378,14 +421,23 @@ sub parse_legacy_zip {
 }
 
 # Pull label.xml out of one .lbx (which is a zip of a P-touch document).
+# undef means the .lbx could not be opened as a zip or carries no
+# label.xml - callers warn and move on.
 sub _lbx_label_xml {
 	my ( $self, $lbx_bytes ) = @_;
 	my $lz = IO::Uncompress::Unzip->new(\$lbx_bytes)
 		or return undef;
 	my $xml;
+	my $max = $self->{max_member_bytes};
 	while (1) {
-		my $name = $lz->getHeaderInfo->{Name} // q{};
-		my $body = _drain($lz);
+		# garbage bytes: new() succeeds, getHeaderInfo does not
+		my $info = $lz->getHeaderInfo;
+		if ( !defined $info ) {
+			close $lz;
+			return undef;
+		}
+		my $name = $info->{Name} // q{};
+		my $body = _drain( $lz, $max );
 		$xml = $body if $name =~ /label\.xml\z/;
 		my $st = $lz->nextStream;
 		last if !$st || $st < 0;
@@ -396,14 +448,20 @@ sub _lbx_label_xml {
 
 # --- internals ----------------------------------------------------------------
 
+# Decompression cap enforcement lives in _drain; the default ceiling is
+# $MAX_MEMBER_BYTES (see the top of the file).
 sub _drain {    # read one zip member to EOF (required before nextStream)
-	my ($z) = @_;
+	my ( $z, $max_bytes ) = @_;
+	$max_bytes ||= $MAX_MEMBER_BYTES;
 	my $data = q{};
 	while (1) {
 		my $buf;
 		my $n = $z->read( $buf, 262144 );
 		last if !$n || $n < 0;
 		$data .= $buf;
+		croak "zip member exceeds $max_bytes bytes while decompressing - "
+			. 'is the download corrupt?'
+			if length($data) > $max_bytes;
 	}
 	return $data;
 }
@@ -440,8 +498,11 @@ sub _decode_entities {
 		'&nbsp;' => ' ',
 	);
 	$text =~ s/(&amp;|&lt;|&gt;|&quot;|&apos;|&nbsp;)/$named{$1}/g;
-	$text =~ s/&#(\d+);/chr($1)/ge;
-	$text =~ s/&#x([0-9a-fA-F]+);/chr( hex $1 )/ge;
+	# Clamp numeric refs: chr() of something enormous ("&#99999999999;")
+	# would otherwise die, and anything past the Unicode ceiling is junk
+	# anyway.
+	$text =~ s/&#(\d+);/ $1 <= 0x10FFFF ? chr($1) : "\x{FFFD}" /ge;
+	$text =~ s/&#x([0-9a-fA-F]+);/ hex($1) <= 0x10FFFF ? chr( hex $1 ) : "\x{FFFD}" /ge;
 	$text =~ s/\s+\z//;
 	return $text;
 }
@@ -564,10 +625,16 @@ Accepted arguments: C<base_url> (for tests), C<cache_dir> (optional
 response cache), C<refresh> (ignore existing cache entries), C<offline>
 (never touch the network; die on cache misses), C<gentle> (pause one
 second between consecutive live fetches - the default, per the project's
-fetch-gently etiquette; tests usually disable it), C<ua> (an
-C<HTTP::Tiny>-compatible object), and C<categories> (an arrayref of
-category ids to crawl instead of discovering them from the guide index -
-mainly for tests).
+fetch-gently etiquette; tests usually disable it), C<max_member_bytes>
+(the per-member decompression ceiling for zip walks; default 64 MiB),
+C<ua> (an C<HTTP::Tiny>-compatible object), and C<categories> (an
+arrayref of category ids to crawl instead of discovering them from the
+guide index - mainly for tests).
+
+HTTPS note: fetching uses core C<HTTP::Tiny>, but C<https> itself needs
+C<IO::Socket::SSL> and C<Net::SSLeay>, which are not core on every perl.
+A missing SSL stack dies with an install hint rather than a bare
+C<599>.
 
 =item categories()
 

@@ -120,7 +120,10 @@ index is thirteen cached requests. Everything else reads from disk, so
 `--offline` works with a warm cache. Label files themselves are never
 stored or redistributed - the site is one person's Patreon-supported
 project, so the tools link to labels and fetch gently (see
-[issue #5][issue-5]).
+[issue #5][issue-5]). One environment note: fetching is core Perl
+(`HTTP::Tiny`) except that HTTPS itself needs `IO::Socket::SSL` and
+`Net::SSLeay`, which are not core on every perl - the tools say so and
+exit if they are missing.
 
 [issue-5]: https://github.com/fini-net/chicks-bricks/issues/5
 
