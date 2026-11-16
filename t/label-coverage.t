@@ -104,6 +104,7 @@ sub build_client {
 	return Lego::BrickArchitect->new(
 		ua         => $ua,
 		categories => [1],
+		gentle     => 0,    # tests never sleep between mock fetches
 		%extra,
 	);
 }

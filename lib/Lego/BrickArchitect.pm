@@ -34,6 +34,7 @@ use File::Path             qw(make_path);
 use File::Spec             ();
 use HTTP::Tiny             ();
 use IO::Uncompress::Unzip  qw($UnzipError);
+use Time::HiRes            qw(time sleep);
 use Lego::Constants        qw($SAFE_NUMBER);
 use Lego::PartsList        ();
 
@@ -58,6 +59,10 @@ sub new {
 		refresh   => $args{refresh} ? 1 : 0,
 		offline   => $args{offline} ? 1 : 0,
 		ua        => $ua,
+		# Pause between consecutive live fetches (issue #5: "fetch
+		# gently" - the site is one person's project).  Cache hits do
+		# not pause; tests disable it to stay fast.
+		gentle    => exists $args{gentle} ? ( $args{gentle} ? 1 : 0 ) : 1,
 		# Category ids to crawl instead of discovering them from /parts
 		# (tests pass one id so a single fixture page serves the index).
 		categories => $args{categories},
@@ -92,7 +97,15 @@ sub get {
 
 	croak "offline mode: no cached response for $url" if $self->{offline};
 
+	# Fetch gently: after a live fetch, give the site a second of rest
+	# before the next one.  First-ever fetch and cache hits are immediate.
+	if ( $self->{gentle} && defined $self->{_last_fetch} ) {
+		my $elapsed = time - $self->{_last_fetch};
+		sleep 1 - $elapsed if $elapsed < 1;
+	}
+
 	my $response = $self->{ua}->get($url);
+	$self->{_last_fetch} = time;
 	if ( $response->{status} == 404 ) {
 		$self->_cache_write( $url, $NOT_FOUND_BODY, $ext );
 		return undef;
@@ -101,7 +114,8 @@ sub get {
 		my $reason = $response->{reason} // 'unknown error';
 		croak "GET $url failed: $response->{status} $reason";
 	}
-	$self->_cache_write( $url, $response->{content}, $ext );
+	$self->_cache_write( $url, $response->{content}, $ext,
+		$args{binary} ? 1 : 0 );
 	return $args{binary}
 		? $response->{content}
 		: decode( 'UTF-8', $response->{content} );
@@ -207,7 +221,10 @@ sub part {
 # The frozen v40 collection: { version => '40', parts => { part_num => row } }
 # where each row names the legacy category and the drawer (.lbx group) the
 # label lives in.  The 20 MB zip is downloaded once and cached; only part
-# numbers are retained, never the labels themselves.
+# numbers are retained, never the labels themselves.  (The zip bytes are
+# held in memory a few times over - cached copy, parse buffer, per-member
+# data - roughly 80 MB peak, which beats inventing a streaming archive
+# layout for a once-per-collection cost.)
 sub legacy_index {
 	my ($self) = @_;
 	return $self->{_legacy} //= do {
@@ -230,11 +247,13 @@ sub legacy_version { return $_[0]->legacy_index->{version} }
 # --- search ------------------------------------------------------------------
 
 # Case-insensitive substring match over the index names and part numbers.
-# Returns an arrayref of index rows sorted by part number.
+# Returns an arrayref of index rows sorted by part number.  The term is
+# quotemeta-escaped once (via \Q..\E), so spaces and punctuation in terms
+# like "2×2 Corner" or "w/ 2-Studs" match literally.
 sub search {
 	my ( $self, $term ) = @_;
 	croak 'search: no term given' if !defined $term || !length $term;
-	my $needle = quotemeta lc $term;
+	my $needle = lc $term;
 	my @hits = grep {
 		( defined $_->{name} && lc( $_->{name} ) =~ /\Q$needle\E/ )
 			|| ( lc( $_->{part_num} ) =~ /\Q$needle\E/ )
@@ -400,24 +419,6 @@ sub _lookup {
 	return undef;
 }
 
-# A tiny HTTP::Tiny wrapper that records the final URL of each request, so
-# part() can report "3684 redirects to 98560" without re-fetching.
-{
-	package Lego::BrickArchitect::_RecordingUa;
-
-	sub wrap {
-		my ( $class, $inner ) = @_;
-		return bless { inner => $inner, final_url => undef }, $class;
-	}
-
-	sub get {
-		my ( $self, @args ) = @_;
-		my $response = $self->{inner}->get(@args);
-		$self->{final_url} = $response->{url};
-		return $response;
-	}
-}
-
 sub _check_part_num {
 	my ($num) = @_;
 	croak 'invalid part number '
@@ -453,9 +454,12 @@ sub _cache_path {
 }
 
 # Write cache files atomically (temp file + rename) so an interrupted run
-# can never leave a half-written entry behind.
+# can never leave a half-written entry behind.  Binary bodies are stored
+# byte-for-byte - the trailing-newline convenience is for text only, or a
+# 20 MB zip would gain a stray byte after its end-of-central-directory
+# record.
 sub _cache_write {
-	my ( $self, $url, $body, $ext ) = @_;
+	my ( $self, $url, $body, $ext, $binary ) = @_;
 	return if !defined $self->{cache_dir};
 	my $cache_file = $self->_cache_path( $url, $ext );
 	make_path( $self->{cache_dir} );
@@ -464,7 +468,7 @@ sub _cache_write {
 		or croak "cannot write cache file '$tmp_file': $!";
 	binmode $fh;
 	print {$fh} $body;
-	print {$fh} "\n" if $body !~ m{\n\z};
+	print {$fh} "\n" if !$binary && $body !~ m{\n\z};
 	close $fh or croak "cannot close cache file '$tmp_file': $!";
 	if ( !rename( $tmp_file, $cache_file ) ) {
 		unlink $tmp_file;    # never leave a temp file behind
@@ -558,7 +562,9 @@ only part numbers, names, and links.
 
 Accepted arguments: C<base_url> (for tests), C<cache_dir> (optional
 response cache), C<refresh> (ignore existing cache entries), C<offline>
-(never touch the network; die on cache misses), C<ua> (an
+(never touch the network; die on cache misses), C<gentle> (pause one
+second between consecutive live fetches - the default, per the project's
+fetch-gently etiquette; tests usually disable it), C<ua> (an
 C<HTTP::Tiny>-compatible object), and C<categories> (an arrayref of
 category ids to crawl instead of discovering them from the guide index -
 mainly for tests).

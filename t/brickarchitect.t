@@ -48,6 +48,12 @@ use Lego::BrickArchitect;
 
 my $BASE = 'https://brickarchitect.com';
 
+# Every test client: gentle => 0 so the fetch-pacing sleep never slows
+# the suite.  The pacing itself gets its own dedicated test below.
+sub new_ba {
+	return Lego::BrickArchitect->new( gentle => 0, @_ );
+}
+
 # Fixture bytes exactly as HTTP::Tiny would fetch them (raw).  Tests that
 # call the parsers directly decode first, because get() hands the parsers
 # decoded text.
@@ -115,7 +121,11 @@ sub legacy_zip_bytes {
 	my $rows   = $ba->parse_category_page( decoded_fixture('category-basic.html') );
 	my $parts  = $rows->{parts};
 	is( $rows->{category}, 'Basic', 'category name from resultsheadercount' );
-	is( scalar keys %{$parts}, 8, 'all fixture part rows parsed' );
+	is( scalar keys %{$parts}, 9, 'all fixture part rows parsed' );
+
+	my $corner = $parts->{2357};
+	is( $corner->{name}, '2×2 Corner', 'name with a space parses' );
+	is( $corner->{group}, '2× Brick', 'rows follow their own h3 group' );
 
 	my $plate = $parts->{3005};
 	is( $plate->{name}, '1×1', 'part name decoded as UTF-8 text' );
@@ -180,14 +190,14 @@ sub legacy_zip_bytes {
 		map { ( ba_url($_) => fixture('category-basic.html') ) } 1, 2, 12,
 	);
 	my $ua = TestUa->new( responses => \%pages );
-	my $ba = Lego::BrickArchitect->new( ua => $ua );
+	my $ba = new_ba( ua => $ua );
 
 	my $cats = $ba->categories;
 	is( scalar @{$cats}, 3, 'categories discovered from the index page' );
 	is_deeply( $cats->[0], { id => 1, name => 'BASIC' }, 'category id + name' );
 
 	my $index = $ba->index;
-	is( scalar keys %{$index}, 8, 'index holds the fixture parts once each' );
+	is( scalar keys %{$index}, 9, 'index holds the fixture parts once each' );
 	ok( $index->{3622} && $index->{3622}{subcategory} eq 'Brick',
 		'index rows carry the breadcrumb' );
 	is( $ua->request_count("$BASE/parts/"), 1, 'index page fetched once' );
@@ -206,7 +216,7 @@ sub ba_url {    # category URL for an id, on the default base
 # --- variant resolution (index + legacy) -----------------------------------------
 {
 	my $bytes = legacy_zip_bytes( angles => [3684] );
-	my $ba = Lego::BrickArchitect->new(
+	my $ba = new_ba(
 		ua => TestUa->new( responses => {} ) );
 	my ( $parts, undef ) = $ba->parse_legacy_zip($bytes);
 	# inject: exact 3684 and variant-based 3068b -> 3068
@@ -223,7 +233,7 @@ sub ba_url {    # category URL for an id, on the default base
 		"$BASE/parts/" => fixture('parts-index.html'),
 		map { ( ba_url($_) => fixture('category-basic.html') ) } 1, 2, 12,
 	} );
-	my $ba = Lego::BrickArchitect->new(
+	my $ba = new_ba(
 		ua         => $ua,
 		categories => [1],
 	);
@@ -234,6 +244,17 @@ sub ba_url {    # category URL for an id, on the default base
 	is( $hits->[0]{part_num}, '3004', 'search results sorted by part number' );
 	is( $hits->[0]{name}, '1×2', 'number hits carry names' );
 	is( scalar @{ $ba->search('86996') }, 1, 'exact number hit' );
+
+	# terms with spaces and non-word punctuation must match literally
+	# (this is the regression test for the quotemeta+\Q..\E double escape)
+	is( scalar @{ $ba->search('2×2 Corner') }, 1,
+		'search term with a space and punctuation matches' );
+	is( $ba->search('2×2 Corner')->[0]{part_num}, '2357',
+		'the spacey name is the hit' );
+	is( scalar @{ $ba->search('1×3') }, 2,
+		'punctuation-only terms are not mangled' );
+	is( scalar @{ $ba->search('no such part') }, 0,
+		'multi-word misses stay misses' );
 
 	eval { $ba->search(q{}) };
 	like( $@, qr/no term given/, 'empty search term dies' );
@@ -252,7 +273,7 @@ sub ba_url {    # category URL for an id, on the default base
 		"$BASE/parts/3023"   => fixture('part-3023.html'),
 	} );
 
-	my $ba   = Lego::BrickArchitect->new( ua => $ua );
+	my $ba   = new_ba( ua => $ua );
 	my $row  = $ba->part('3684');
 	is( $row->{part_num}, '98560', 'canonical number parsed from the page' );
 	is( $row->{alias}, '98560', 'redirect alias reported' );
@@ -273,7 +294,7 @@ sub ba_url {    # category URL for an id, on the default base
 {
 	my $dir = File::Temp->newdir;
 
-	my $live = Lego::BrickArchitect->new(
+	my $live = new_ba(
 		cache_dir => "$dir",
 		ua        => TestUa->new( responses => {
 			"$BASE/parts/3023" => fixture('part-3023.html'),
@@ -283,7 +304,7 @@ sub ba_url {    # category URL for an id, on the default base
 	is( $live->part('nope'), undef, '404 under a live client' );
 
 	# everything is cached now; replay with no transport at all
-	my $offline = Lego::BrickArchitect->new(
+	my $offline = new_ba(
 		cache_dir => "$dir", offline => 1,
 	);
 	is( $offline->part('3023')->{name}, '1×2 Plate',
@@ -300,14 +321,14 @@ sub ba_url {    # category URL for an id, on the default base
 	my $ua2 = TestUa->new( responses => {
 		"$BASE/parts/3023" => fixture('part-3023.html'),
 	} );
-	my $warm = Lego::BrickArchitect->new( cache_dir => "$dir", ua => $ua2 );
+	my $warm = new_ba( cache_dir => "$dir", ua => $ua2 );
 	$warm->part('3023');
 	is( $ua2->request_count("$BASE/parts/3023"), 0,
 		'cached run skips the transport' );
 	my $ua3 = TestUa->new( responses => {
 		"$BASE/parts/3023" => fixture('part-3023.html'),
 	} );
-	Lego::BrickArchitect->new( cache_dir => "$dir", refresh => 1, ua => $ua3 )
+	new_ba( cache_dir => "$dir", refresh => 1, ua => $ua3 )
 		->part('3023');
 	is( $ua3->request_count("$BASE/parts/3023"), 1,
 		'refresh re-hits the transport' );
@@ -321,14 +342,47 @@ sub ba_url {    # category URL for an id, on the default base
 	my $ua4 = TestUa->new( responses => {} );
 	my $zip_url = 'https://brickarchitect.com/files/LEGO_BRICK_LABELS.zip';
 	$ua4->{responses}{$zip_url} = $zip;
-	my $live2 = Lego::BrickArchitect->new( cache_dir => "$dir", ua => $ua4 );
+	my $live2 = new_ba( cache_dir => "$dir", ua => $ua4 );
 	is( $live2->legacy_lookup('3684')->{group}, 'ANGLE-slope',
 		'legacy index built from a fetched zip' );
-	my $offline2 = Lego::BrickArchitect->new(
+
+	# the cached zip must be the exact payload - no trailing-newline padding
+	# appended to binary bodies
+	my $zip_cache = File::Spec->catfile( "$dir",
+		Digest::SHA::sha1_hex($zip_url) . '.zip' );
+	open my $zf, '<', $zip_cache or die "cannot read $zip_cache: $!";
+	binmode $zf;
+	local $/;
+	my $cached_zip = <$zf>;
+	close $zf;
+	is( length $cached_zip, length $zip,
+		'binary cache entries are byte-exact, not newline-padded' );
+
+	my $offline2 = new_ba(
 		cache_dir => "$dir", offline => 1 );
 	is( $offline2->legacy_lookup('3684')->{group}, 'ANGLE-slope',
 		'legacy zip replays from the binary cache offline' );
 	is( $offline2->legacy_version, '40', 'legacy version replays offline' );
+}
+
+# --- gentle pacing between live fetches ------------------------------------------
+{
+	my $ua = TestUa->new( responses => {
+		"$BASE/parts/slow1" => 'one',
+		"$BASE/parts/slow2" => 'two',
+	} );
+	my $gentle = Lego::BrickArchitect->new( ua => $ua );    # gentle default
+	my $start = time;
+	$gentle->get("$BASE/parts/slow1");
+	$gentle->get("$BASE/parts/slow2");
+	cmp_ok( time - $start, '>=', 0.9,
+		'gentle mode (default) pauses a second between live fetches' );
+
+	my $fast = Lego::BrickArchitect->new( ua => $ua, gentle => 0 );
+	my $start2 = time;
+	$fast->get("$BASE/parts/slow1");
+	$fast->get("$BASE/parts/slow2");
+	cmp_ok( time - $start2, '<', 0.9, 'gentle => 0 fetches back to back' );
 }
 
 # --- corrupt cache entries ------------------------------------------------------
@@ -350,7 +404,7 @@ sub ba_url {    # category URL for an id, on the default base
 
 	my $warnings = q{};
 	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
-	my $api = Lego::BrickArchitect->new(
+	my $api = new_ba(
 		cache_dir => "$dir",
 		ua        => TestUa->new( responses => {
 			"$BASE/parts/3023" => fixture('part-3023.html'),
@@ -366,7 +420,7 @@ sub ba_url {    # category URL for an id, on the default base
 		'undecodable cache entry warns and is refetched' );
 
 	# the refetches replaced both corrupt files, so offline replay works
-	my $offline = Lego::BrickArchitect->new(
+	my $offline = new_ba(
 		cache_dir => "$dir", offline => 1 );
 	is( $offline->part('3005')->{name}, '1×2 Plate',
 		'refetch replaced the corrupt cache file' );

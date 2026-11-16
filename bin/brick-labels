@@ -22,6 +22,17 @@ use Lego::PartsList;
 
 binmode STDOUT, ':encoding(UTF-8)';
 
+# Decode arguments as UTF-8 so --search terms like '2×2 Corner' match the
+# guide's decoded part names (and titles print correctly).  Anything that
+# is not valid UTF-8 (a stray latin-1 paste) stays as-is.
+{
+	use Encode qw(decode FB_CROAK);
+	@ARGV = map {
+		my $decoded = eval { decode( 'UTF-8', $_, FB_CROAK ) };
+		defined $decoded ? $decoded : $_;
+	} @ARGV;
+}
+
 my %opt = ( 'cache-dir' => 'data/cache', 'format' => 'text' );
 GetOptions(
 	\%opt,
@@ -201,7 +212,15 @@ sub emit {
 		my @keys = uniq_keys( \@rows );
 		print join( ',', @keys ), "\n";
 		for my $row (@rows) {
-			print join( ',', map { csv_field( $row->{$_} ) } @keys ), "\n";
+			# yes/no for the flag columns, matching render_csv output
+			my %display = %{$row};
+			for my $flag (qw(has_label in_legacy)) {
+				next if !exists $display{$flag};
+				$display{$flag} = $display{$flag} ? 'yes' : 'no';
+			}
+			print join( ',',
+				map { Lego::LabelCoverage::csv_escape( $display{$_} ) } @keys ),
+				"\n";
 		}
 	}
 	return 0;
@@ -218,14 +237,6 @@ sub uniq_keys {
 		}
 	}
 	return @keys;
-}
-
-sub csv_field {
-	my ($field) = @_;
-	return q{} if !defined $field;
-	return $field if $field !~ m{[",\n]};
-	$field =~ s/"/""/g;
-	return qq{"$field};
 }
 
 exit 0;

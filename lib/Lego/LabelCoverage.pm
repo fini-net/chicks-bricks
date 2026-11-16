@@ -25,6 +25,7 @@ use warnings;
 
 use Carp           qw(croak);
 use List::Util     qw(sum0);
+use Scalar::Util   qw(blessed);
 use Lego::PartsList ();
 
 our $VERSION = '0.01';
@@ -33,8 +34,10 @@ sub new {
 	my ( $class, %args ) = @_;
 	croak 'parts must be an arrayref of part rows'
 		if ref $args{parts} ne 'ARRAY';
+	# Duck-typed: anything that answers the BrickArchitect API works,
+	# which also lets tests substitute lighter clients.
 	croak 'ba must be a Lego::BrickArchitect client'
-		if ref( $args{ba} ) !~ /BrickArchitect/;
+		if !blessed( $args{ba} ) || !$args{ba}->can('index_lookup');
 	return bless {
 		parts  => $args{parts},
 		ba     => $args{ba},
@@ -285,12 +288,15 @@ sub render_csv {
 				$row->{legacy_category} // q{}, $row->{legacy_group} // q{};
 		}
 		push @fields, $row->{url} // q{};
-		push @lines, join q{,}, map { _csv_escape($_) } @fields;
+		push @lines, join q{,}, map { csv_escape($_) } @fields;
 	}
 	return join( "\n", @lines ) . "\n";
 }
 
-sub _csv_escape {
+# The CSV quoting rules (RFC 4180-ish), shared with bin/brick-labels so
+# every writer quotes identically: quote fields containing commas,
+# quotes, or newlines, doubling embedded quotes.
+sub csv_escape {
 	my ($field) = @_;
 	return q{} if !defined $field;
 	return $field if $field !~ m{[",\n]};
@@ -359,6 +365,11 @@ With C<legacy>: { both, guide_only, legacy_only, neither } row lists.
 Reports.  Pass C<title> to the first two.  render_text ends with the
 label-page URL queue: every covered part normally, or just the
 guide-only gaps in legacy mode (the legacy labels are already printed).
+
+=item csv_escape($field)
+
+The CSV quoting helper used by render_csv - public so bin/brick-labels
+quotes identically instead of duplicating the rules.
 
 =back
 
