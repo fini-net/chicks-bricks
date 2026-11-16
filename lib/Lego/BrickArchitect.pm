@@ -51,6 +51,9 @@ my $NOT_FOUND_BODY = "__BRICKARCHITECT_NOT_FOUND__\n";
 # Decompression cap: zip members are read into memory, so a corrupted or
 # hostile download could otherwise balloon.  The largest real member is
 # about 1.5 MB, so 64 MiB is generous headroom while still bounded.
+# Deliberately per MEMBER, not cumulative: each member is drained and
+# released before the next, so peak memory is the zip plus the largest
+# single member - a total budget would bound work, not peak memory.
 # Overridable per client (tests set it low to exercise the guard).
 my $MAX_MEMBER_BYTES = 64 * 1024 * 1024;
 
@@ -299,15 +302,17 @@ sub legacy_version { return $_[0]->legacy_index->{version} }
 
 # Case-insensitive substring match over the index names and part numbers.
 # Returns an arrayref of index rows sorted by part number.  The term is
-# quotemeta-escaped once (via \Q..\E), so spaces and punctuation in terms
-# like "2×2 Corner" or "w/ 2-Studs" match literally.
+# quotemeta-escaped once (via \Q..\E) and precompiled, so spaces and
+# punctuation in terms like "2×2 Corner" or "w/ 2-Studs" match literally
+# without recompiling the regex for every row.
 sub search {
 	my ( $self, $term ) = @_;
 	croak 'search: no term given' if !defined $term || !length $term;
 	my $needle = lc $term;
+	my $re     = qr/\Q$needle\E/;
 	my @hits = grep {
-		( defined $_->{name} && lc( $_->{name} ) =~ /\Q$needle\E/ )
-			|| ( lc( $_->{part_num} ) =~ /\Q$needle\E/ )
+		( defined $_->{name} && lc( $_->{name} ) =~ $re )
+			|| ( lc( $_->{part_num} ) =~ $re )
 	} values %{ $self->index };
 	return [ sort { $a->{part_num} cmp $b->{part_num} } @hits ];
 }
@@ -531,12 +536,18 @@ sub _decode_entities {
 		'&apos;' => q{'},
 		'&nbsp;' => ' ',
 	);
-	$text =~ s/(&amp;|&lt;|&gt;|&quot;|&apos;|&nbsp;)/$named{$1}/g;
-	# Clamp numeric refs: chr() of something enormous ("&#99999999999;")
-	# would otherwise die, and anything past the Unicode ceiling is junk
-	# anyway.
-	$text =~ s/&#(\d+);/ $1 <= 0x10FFFF ? chr($1) : "\x{FFFD}" /ge;
-	$text =~ s/&#x([0-9a-fA-F]+);/ hex($1) <= 0x10FFFF ? chr( hex $1 ) : "\x{FFFD}" /ge;
+	# All entity forms decode in ONE pass, so text that was escaped for
+	# display stays escaped: "&amp;#65;" decodes once, to the literal
+	# "&#65;" - a second pass would double-decode it to "A".  Numeric
+	# refs are clamped in the same pass: chr() of something enormous
+	# ("&#99999999999;") would otherwise die, and anything past the
+	# Unicode ceiling is junk anyway.  Single-line and /x-free like
+	# row_re: the pattern holds literal "#"-text that /x would eat.
+	$text =~ s{(&amp;|&lt;|&gt;|&quot;|&apos;|&nbsp;)|&#(\d+);|&#x([0-9a-fA-F]+);}{
+		if    ( defined $1 ) { $named{$1} }
+		elsif ( defined $2 ) { $2 <= 0x10FFFF ? chr($2) : "\x{FFFD}" }
+		else                 { hex($3) <= 0x10FFFF ? chr( hex $3 ) : "\x{FFFD}" }
+	}ge;
 	$text =~ s/\s+\z//;
 	return $text;
 }
@@ -660,10 +671,14 @@ response cache), C<refresh> (ignore existing cache entries), C<offline>
 (never touch the network; die on cache misses), C<gentle> (pause one
 second between consecutive live fetches - the default, per the project's
 fetch-gently etiquette; tests usually disable it), C<max_member_bytes>
-(the per-member decompression ceiling for zip walks; default 64 MiB),
+(the per-member decompression ceiling for zip walks; default 64 MiB -
+members are drained and released one at a time, so this is what bounds
+the walk's peak memory),
 C<notfound_ttl> (seconds a cached 404 stays authoritative - the guide
 keeps adding parts, so "no label" answers are re-checked after it;
-default 30 days, 0 = forever), C<ua> (an C<HTTP::Tiny>-compatible
+default 30 days, 0 = forever; expiry is judged by the cache file's
+mtime, so a copied or restored cache directory starts the clock over -
+use C<refresh> to force a re-check), C<ua> (an C<HTTP::Tiny>-compatible
 object), and C<categories> (an arrayref of category ids to crawl
 instead of discovering them from the guide index - mainly for tests).
 

@@ -303,6 +303,14 @@ sub ba_url {    # category URL for an id, on the default base
 		'past the Unicode ceiling clamps too' );
 	is( Lego::BrickArchitect::_decode_entities('&#8212;'), "\x{2014}",
 		'valid numeric entities still decode' );
+
+	# one pass only: display-escaped text must not double-decode
+	is( Lego::BrickArchitect::_decode_entities('&amp;#65;'), '&#65;',
+		'an escaped ampersand decodes once, not twice' );
+	is( Lego::BrickArchitect::_decode_entities('&amp;amp;'), '&amp;',
+		'doubly-escaped ampersands stay one level deep' );
+	is( Lego::BrickArchitect::_decode_entities('A &amp; B'), 'A & B',
+		'plain named entities still decode' );
 	is( $warnings, q{}, 'no warnings from clamping' );
 }
 

@@ -19,6 +19,7 @@ use utf8;
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
 
+use Time::HiRes qw(time);
 use Test::More;
 
 if ( !$ENV{LIVE_API} ) {
@@ -58,6 +59,21 @@ my $hits = $ba->search('bracket');
 cmp_ok( scalar @{$hits}, '>', 0, 'search finds brackets' );
 ok( ( grep { lc( $_->{name} ) =~ /bracket/ } @{$hits} ) > 0,
 	'search matches names, not just numbers' );
+
+# --- parser speed: no pathological backtracking on the live markup -------------
+# Time only the parse of an already-cached page, never the network, so a
+# layout change that sends row_re into catastrophic backtracking shows up
+# here as a wall-time smell instead of a hang.
+{
+	my $id    = $cats->[0]{id};
+	my $page  = $ba->get( $ba->category_url($id) );    # cached by now
+	my $start = time;
+	my $rows  = $ba->parse_category_page($page);
+	cmp_ok( time - $start, '<', 1,
+		'a live category page parses in under a second' );
+	cmp_ok( scalar keys %{ $rows->{parts} }, '>', 0,
+		'...and still finds its parts' );
+}
 
 # --- legacy collection (20 MB one-time download, cached) --------------------------
 SKIP: {
