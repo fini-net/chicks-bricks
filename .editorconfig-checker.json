@@ -4,6 +4,7 @@
     "\\.just/test/fixtures/",
     "\\.just/lib/generate_checksums\\.sh$",
     "^LICENSE$",
+    "^t/fixtures/",
     "^\\.opencode/",
     "^\\.cache/"
   ]

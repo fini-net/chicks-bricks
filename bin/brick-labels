@@ -1,0 +1,355 @@
+#!/usr/bin/env perl
+# brick-labels - which of Tom Alphin's Brick Architect labels cover your parts?
+#
+# Looks parts up in the LEGO Parts Guide (the current label collection),
+# searches it, and reports label coverage for a whole parts list - plus,
+# with --legacy, where parts live in the frozen LEGO Brick Labels v40
+# collection for folks who printed that 2023 set.
+
+use strict;
+use warnings;
+
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+
+use Getopt::Long qw(GetOptions);
+use JSON::PP     ();
+use Pod::Usage;
+
+use Lego::BrickArchitect;
+use Lego::LabelCoverage;
+use Lego::PartsList;
+
+binmode STDOUT, ':encoding(UTF-8)';
+
+my %opt = ( 'cache-dir' => 'data/cache', 'format' => 'text' );
+GetOptions(
+	\%opt,
+	'search=s',
+	'parts-file=s@',
+	'set=s@',
+	'legacy',
+	'no-deep',
+	'format=s',
+	'cache-dir=s',
+	'refresh',
+	'offline',
+	'api-key=s',
+	'title=s',
+	'help|?',
+	'man',
+) or pod2usage(2);
+pod2usage(1)                              if $opt{help};
+pod2usage( -exitval => 0, -verbose => 2 )  if $opt{man};
+
+# Validate options before any network work so a typo fails fast and free.
+pod2usage( -message => "unknown --format '$opt{format}' (want text, json, or csv)",
+	-exitval => 2, -verbose => 0 )
+	if $opt{format} !~ m{\A(?:text|json|csv)\z};
+
+my @modes = grep { defined } ( $opt{search}, @{ $opt{'parts-file'} // [] }, @{ $opt{set} // [] } );
+pod2usage(
+	-message => 'nothing to do: give part numbers, --search TERM, '
+		. 'and/or --parts-file FILE / --set NUM',
+	-exitval => 2,
+	-verbose => 0,
+) if !@modes && !@ARGV;
+
+my $ba = Lego::BrickArchitect->new(
+	cache_dir => $opt{'cache-dir'},
+	( $opt{refresh} ? ( refresh => 1 ) : () ),
+	( $opt{offline} ? ( offline => 1 ) : () ),
+);
+
+# --- search mode --------------------------------------------------------------
+
+if ( defined $opt{search} ) {
+	my $hits = $ba->search( $opt{search} );
+	my @rows = map {
+		{   part_num    => $_->{part_num},
+			name        => $_->{name},
+			has_label   => 1,
+			category    => $_->{category},
+			( defined $_->{subcategory} ? ( subcategory => $_->{subcategory} ) : () ),
+			( defined $_->{group}       ? ( group       => $_->{group} )       : () ),
+			url         => $_->{url},
+			label_url   => "https://brickarchitect.com/label/$_->{part_num}.lbx",
+			( $opt{legacy} ? ( in_legacy => $ba->legacy_lookup( $_->{part_num} ) ? 1 : 0 ) : () ),
+		}
+	} @{$hits};
+	exit emit( rows => \@rows, what => 'search' );
+}
+
+# --- lookup mode (bare part numbers) -------------------------------------------
+
+if ( @ARGV && !$opt{'parts-file'} && !$opt{set} ) {
+	my @rows;
+	for my $num (@ARGV) {
+		my $page = $ba->part($num);
+		if ( !defined $page ) {
+			push @rows, { input_num => $num, has_label => 0 };
+			next;
+		}
+		my %row = (
+			input_num   => $num,
+			part_num    => $page->{part_num},
+			( defined $page->{alias} ? ( alias => $page->{alias} ) : () ),
+			name        => $page->{name},
+			has_label   => 1,
+			( defined $page->{category}    ? ( category    => $page->{category} )    : () ),
+			( defined $page->{subcategory} ? ( subcategory => $page->{subcategory} ) : () ),
+			( defined $page->{group}       ? ( group       => $page->{group} )       : () ),
+			( defined $page->{in_legacy}   ? ( in_legacy   => $page->{in_legacy} )   : () ),
+			url         => $page->{url},
+			( defined $page->{label_url}   ? ( label_url   => $page->{label_url} )   : () ),
+		);
+		if ($opt{legacy}) {
+			my $legacy = $ba->legacy_lookup($num);
+			@row{qw(legacy_category legacy_group)} = @{$legacy}{qw(category group)}
+				if $legacy;
+		}
+		push @rows, \%row;
+	}
+	exit emit( rows => \@rows, what => 'lookup' );
+}
+
+# --- coverage mode (--parts-file / --set) ----------------------------------------
+
+my @parts;
+my @titles;
+if ( $opt{'parts-file'} ) {
+	push @parts,  map { @{ Lego::PartsList->from_file($_) } } @{ $opt{'parts-file'} };
+	push @titles, @{ $opt{'parts-file'} };
+}
+if ( $opt{set} ) {
+	require Lego::Rebrickable;
+	my $api = Lego::Rebrickable->new(
+		( defined $opt{'api-key'} ? ( api_key => $opt{'api-key'} ) : () ),
+		cache_dir => $opt{'cache-dir'},
+		( $opt{refresh} ? ( refresh => 1 ) : () ),
+		( $opt{offline} ? ( offline => 1 ) : () ),
+	);
+	for my $set_num ( @{ $opt{set} } ) {
+		push @parts,  @{ Lego::PartsList->from_set( $api, $set_num ) };
+		push @titles, "set $set_num";
+	}
+}
+
+my $title = defined $opt{title}
+	? $opt{title}
+	: 'Parts: ' . join ' + ', @titles;
+
+my $coverage = Lego::LabelCoverage->new(
+	parts  => Lego::PartsList->aggregate( \@parts ),
+	ba     => $ba,
+	legacy => $opt{legacy},
+	deep   => $opt{'no-deep'} ? 0 : 1,
+);
+
+exit emit( what => 'coverage', coverage => $coverage, title => $title );
+
+# --- output helpers --------------------------------------------------------------
+
+sub emit {
+	my (%args) = @_;
+	my $format = $opt{format};
+
+	if ( $args{what} eq 'coverage' ) {
+		my $cov = $args{coverage};
+		if    ( $format eq 'text' ) { print $cov->render_text( title => $args{title} ) }
+		elsif ( $format eq 'json' ) {
+			print JSON::PP->new->pretty->canonical
+				->encode( $cov->summary_data( title => $args{title} ) );
+		}
+		elsif ( $format eq 'csv' ) { print $cov->render_csv }
+		return 0;
+	}
+
+	# lookup / search rows
+	my @rows = @{ $args{rows} };
+	if ( $format eq 'text' ) {
+		for my $row (@rows) {
+			if ( !$row->{has_label} ) {
+				my $num = $row->{input_num} // $row->{part_num};
+				print "$num: no label in the parts guide\n";
+				next;
+			}
+			my $shown = $row->{input_num} // $row->{part_num};
+			print "$shown: $row->{name}";
+			print " (Part $row->{part_num})" if $shown ne $row->{part_num};
+			print "\n";
+			print "  redirects to $row->{part_num} in the guide\n"
+				if defined $row->{alias};
+			my @crumb = grep { defined } ( $row->{category}, $row->{subcategory}, $row->{group} );
+			print '  ', join( ' > ', @crumb ), "\n" if @crumb;
+			print "  label: $row->{url}\n";
+			print "  .lbx:  $row->{label_url}\n" if defined $row->{label_url};
+			print defined $row->{in_legacy}
+				? ( $row->{in_legacy}
+					? "  in legacy LEGO Brick Labels\n"
+					: "  not in legacy LEGO Brick Labels\n" )
+				: q{};
+			if ( defined $row->{legacy_group} ) {
+				print "  legacy drawer: $row->{legacy_category} / $row->{legacy_group}\n";
+			}
+		}
+	}
+	elsif ( $format eq 'json' ) {
+		print JSON::PP->new->pretty->canonical->encode( { parts => \@rows } );
+	}
+	elsif ( $format eq 'csv' ) {
+		my @keys = uniq_keys( \@rows );
+		print join( ',', @keys ), "\n";
+		for my $row (@rows) {
+			print join( ',', map { csv_field( $row->{$_} ) } @keys ), "\n";
+		}
+	}
+	return 0;
+}
+
+sub uniq_keys {
+	my ($rows) = @_;
+	my %seen;
+	my @keys;
+	for my $row ( @{$rows} ) {
+		for my $key ( sort keys %{$row} ) {
+			next if $seen{$key}++;
+			push @keys, $key;
+		}
+	}
+	return @keys;
+}
+
+sub csv_field {
+	my ($field) = @_;
+	return q{} if !defined $field;
+	return $field if $field !~ m{[",\n]};
+	$field =~ s/"/""/g;
+	return qq{"$field};
+}
+
+exit 0;
+
+__END__
+
+=head1 NAME
+
+brick-labels - which of Tom Alphin's Brick Architect labels cover your parts?
+
+=head1 SYNOPSIS
+
+	brick-labels 3684 [--legacy] [--format text|json|csv]
+
+	# every label matching a name or number
+	brick-labels --search bracket
+
+	# coverage report for a whole parts list (or a Rebrickable set)
+	brick-labels --parts-file examples/business_card_holder.parts.csv
+	brick-labels --parts-file examples/business_card_holder.parts.csv --legacy
+
+	# for folks who printed the frozen 2023 collection
+	brick-labels --parts-file my.parts.csv --legacy --format csv
+
+=head1 DESCRIPTION
+
+Answers the sorting-drawer question: when organizing a LEGO collection,
+which parts have labels in Tom Alphin's L<LEGO Parts
+Guide|https://brickarchitect.com/parts/> (the current collection, ~5000
+parts, printable one page at a time), and which parts also live in the
+frozen L<LEGO Brick Labels v40|https://brickarchitect.com/labels/>
+(December 2023, ~1800 labels, distributed as one bulk download).
+
+Lookups resolve the way L<Lego::PartsList> resolves variant numbers
+(3068b -> 3068), and the guide itself redirects old numbers to modern
+ones - C<brick-labels 3684> answers from 98560 and says so.
+
+Everything is cached under F<data/cache/> (see L<Lego::BrickArchitect>),
+so repeat runs are instant and offline-capable with C<--offline>.  The
+first C<--legacy> run downloads the 20 MB legacy collection zip once;
+only part numbers are read from it, never the labels themselves.
+
+=head1 OPTIONS
+
+=over 4
+
+=item PART NUMBERS
+
+Bare arguments look each part up: Alphin's name, category breadcrumb,
+label and .lbx links, legacy membership, and (with C<--legacy>) the
+legacy drawer it lives in.
+
+=item --search TERM
+
+Case-insensitive substring match over the guide's part names and numbers.
+
+=item --parts-file FILE
+
+CSV of C<part_num,name,qty[,color]> rows, as accepted by
+L<Lego::PartsList>.  Repeatable.
+
+=item --set NUM
+
+A Rebrickable set number (e.g. 850425-1); requires C<REBRICKABLE_API_KEY>.
+Repeatable.
+
+=item --legacy
+
+Also analyze against the frozen v40 collection: legacy membership,
+legacy category, and the drawer (.lbx group) each part's label lives in.
+In coverage reports, parts are classified as in-both / guide-only /
+legacy-only / neither, and the print queue shrinks to the guide-only
+gaps (the legacy labels are already on your drawers).
+
+=item --no-deep
+
+Skip per-part page fetches for parts missing from the guide index.
+Slower to cover old part numbers, but makes the first run on a large
+collection index-only.
+
+=item --format text|json|csv
+
+Output format (default: text).
+
+=item --cache-dir DIR
+
+Where to keep responses (default: data/cache).
+
+=item --refresh
+
+Re-fetch even when a cached response exists.
+
+=item --offline
+
+Never touch the network; fail on cache misses.
+
+=item --api-key KEY
+
+Rebrickable API key for C<--set>; defaults to C<REBRICKABLE_API_KEY>,
+which is preferred - command-line values are visible in process listings.
+
+=item --title STR
+
+Report title for coverage mode (default: the file or set names).
+
+=item --help, --man
+
+Usage / full manual.
+
+=back
+
+=head1 EXAMPLES
+
+	brick-labels 3684 --legacy
+
+	brick-labels --search bracket
+
+	brick-labels --parts-file examples/business_card_holder.parts.csv \
+		--title 'MOC-61370 Business Card Holder'
+
+=head1 SEE ALSO
+
+L<https://brickarchitect.com/parts/>,
+L<https://brickarchitect.com/labels/>,
+L<Lego::BrickArchitect>, L<Lego::LabelCoverage>, L<Lego::PartsList>
+
+=cut
