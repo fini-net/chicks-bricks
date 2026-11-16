@@ -3,7 +3,7 @@
 # TODO: mirrors later
 
 [about]
-description = "LEGO-related tools, data, and MOCs"
+description = "LEGO-related tools, data, and MOCs 🧱 🚂"
 topics = ["bricklink", "brickset", "lego", "lego-architecture", "lego-moc", "lego-technic", "perl5", "rebrickable"]
 license = "GPL-2.0-only"
 
