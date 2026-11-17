@@ -385,6 +385,14 @@ sub ba_url {    # category URL for an id, on the default base
 	ok( !exists $ba->part('3023')->{alias}, 'no alias key when numbers agree' );
 	is( $ba->part('no-such-page'), undef, 'missing label page gives undef' );
 
+	# The bare return behind that undef (perlcritic, issue #12) also
+	# means part() answers an empty list in list context - unlike the
+	# old "return undef", which was a one-element true list.
+	# Test::More's is() forces scalar context through its ($$;$)
+	# prototype, so pin the list side of the contract here.
+	my @missing = $ba->part('no-such-page');
+	is( scalar @missing, 0, 'missing page is an empty list, not (undef)' );
+
 	eval { $ba->part('3684/colors') };
 	like( $@, qr/invalid part number/, 'part number with a slash dies' );
 	is( $ua->request_count("$BASE/parts/3684/colors"), 0,
@@ -404,6 +412,11 @@ sub ba_url {    # category URL for an id, on the default base
 	is( $live->part('3023')->{name}, '1×2 Plate', 'live (mocked) lookup works' );
 	is( $live->part('nope'), undef, '404 under a live client' );
 
+	# get()'s list-context contract, fresh-404 path: the empty list,
+	# not the one-element (undef) the old "return undef" gave.
+	my @missed = $live->get("$BASE/parts/still-nope");
+	is( scalar @missed, 0, 'fresh 404 get() in list context: empty list' );
+
 	# everything is cached now; replay with no transport at all
 	my $offline = new_ba(
 		cache_dir => "$dir", offline => 1,
@@ -413,6 +426,11 @@ sub ba_url {    # category URL for an id, on the default base
 	is( $offline->part('3023')->{alias}, undef,
 		'alias detection is redirect-free (works offline)' );
 	is( $offline->part('nope'), undef, 'cached 404 replays as undef offline' );
+
+	# get()'s other bare-return path: the cached 404 sentinel answers
+	# offline with an empty list too.
+	my @replayed = $offline->get("$BASE/parts/still-nope");
+	is( scalar @replayed, 0, 'cached 404 get() in list context: empty list' );
 
 	eval { $offline->part('also-nope') };
 	like( $@, qr/offline mode: no cached response/,

@@ -74,7 +74,7 @@ sub get_json {
 				warn "$error - ignoring, refetching\n";
 			}
 			else {
-				return undef if $status eq 'notfound';
+				return if $status eq 'notfound';
 				return $data;
 			}
 		}
@@ -91,7 +91,7 @@ sub get_json {
 
 	if ( $response->{status} == 404 ) {
 		$self->_cache_write( $url, $NOT_FOUND_JSON );
-		return undef;
+		return;
 	}
 	if ( !$response->{success} ) {
 		my $reason = $response->{reason} // 'unknown error';
@@ -121,7 +121,7 @@ sub get_all {
 	my $url = $self->{base_url} . q{/} . $path . $sep . 'page_size=1000';
 	my @rows;
 	while ( defined $url ) {
-		my $data = $self->get_json($url) or return undef;
+		my $data = $self->get_json($url) or return;
 		croak "GET $url: expected a paginated list, got something else"
 			if ref $data ne 'HASH' || ref $data->{results} ne 'ARRAY';
 		push @rows, @{ $data->{results} };
@@ -170,7 +170,7 @@ sub set_parts {
 
 sub _cache_path {
 	my ($self, $url) = @_;
-	return undef if !defined $self->{cache_dir};
+	return if !defined $self->{cache_dir};
 	return File::Spec->catfile( $self->{cache_dir}, sha1_hex($url) . '.json' );
 }
 

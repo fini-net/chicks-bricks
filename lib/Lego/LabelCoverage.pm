@@ -107,7 +107,7 @@ sub _deep_page {
 		my $page = $self->{ba}->part($try);
 		return $page if $page;
 	}
-	return undef;
+	return;
 }
 
 sub _row_from_index {
@@ -151,7 +151,7 @@ sub pieces_pct {
 
 sub legacy_stats {
 	my ($self) = @_;
-	return undef if !$self->{legacy};
+	return if !$self->{legacy};
 	my @rows = @{ $self->analyze };
 	my @both     = grep { $_->{has_label}  && $_->{in_legacy} } @rows;
 	my @guide    = grep { $_->{has_label}  && !$_->{in_legacy} } @rows;

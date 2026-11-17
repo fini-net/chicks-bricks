@@ -119,7 +119,7 @@ sub get {
 				# guide - it keeps adding parts, so "no label" answers
 				# go stale.  The refetch below re-caches either answer,
 				# which resets the entry's clock.
-				return undef
+				return
 					if $self->{offline}
 					|| !$self->{notfound_ttl}
 					|| time - ( stat $cache_file )[9] < $self->{notfound_ttl};
@@ -144,7 +144,7 @@ sub get {
 	$self->{_last_fetch} = time;
 	if ( $response->{status} == 404 ) {
 		$self->_cache_write( $url, $NOT_FOUND_BODY, $ext );
-		return undef;
+		return;
 	}
 	if ( !$response->{success} ) {
 		my $reason = $response->{reason} // 'unknown error';
@@ -258,7 +258,7 @@ sub part {
 
 	my $url  = "$self->{base_url}/parts/$num";
 	my $body = $self->get($url);
-	return undef if !defined $body;
+	return if !defined $body;
 
 	my $row = $self->parse_part_page($body);
 	$row->{requested_num} = $num;
@@ -463,7 +463,7 @@ sub parse_legacy_zip {
 sub _lbx_label_xml {
 	my ( $self, $lbx_bytes ) = @_;
 	my $lz = IO::Uncompress::Unzip->new(\$lbx_bytes)
-		or return undef;
+		or return;
 	my $xml;
 	my $max = $self->{max_member_bytes};
 	while (1) {
@@ -471,7 +471,7 @@ sub _lbx_label_xml {
 		my $info = $lz->getHeaderInfo;
 		if ( !defined $info ) {
 			close $lz;
-			return undef;
+			return;
 		}
 		my $name = $info->{Name} // q{};
 		my $body = _drain( $lz, $max );
@@ -513,7 +513,7 @@ sub _lookup {
 	for my $variant ( Lego::PartsList->variants($num) ) {
 		return $index->{$variant} if exists $index->{$variant};
 	}
-	return undef;
+	return;
 }
 
 sub _check_part_num {
@@ -527,7 +527,7 @@ sub _check_part_num {
 
 sub _decode_entities {
 	my ($text) = @_;
-	return undef if !defined $text;
+	return if !defined $text;
 	my %named = (
 		'&amp;'  => '&',
 		'&lt;'   => '<',
@@ -554,7 +554,7 @@ sub _decode_entities {
 
 sub _cache_path {
 	my ( $self, $url, $ext ) = @_;
-	return undef if !defined $self->{cache_dir};
+	return if !defined $self->{cache_dir};
 	return File::Spec->catfile( $self->{cache_dir},
 		sha1_hex($url) . ".$ext" );
 }
