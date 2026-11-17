@@ -113,6 +113,13 @@ sub json_page {
 	);
 	is( $live->part_colors('nope'), undef, '404 under a live client' );
 
+	# Same contract pin as t/brickarchitect.t, for the sub that actually
+	# bare-returns (get_json; the memoized accessors like part_colors
+	# return a scalar expression, which stays (undef) in list context):
+	# a 404 is an empty list, not a one-element true list.
+	my @missing = $live->get_json("$BASE/lego/parts/absent/colors/");
+	is( scalar @missing, 0, '404 get_json in list context: empty list' );
+
 	# the 404 is now cached; replay it with no key and no transport
 	my $offline = Lego::Rebrickable->new(
 		base_url  => $BASE,
