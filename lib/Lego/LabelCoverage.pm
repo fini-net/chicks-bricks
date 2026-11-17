@@ -334,15 +334,16 @@ Lego::LabelCoverage - which of your parts have Brick Architect labels?
 =head1 DESCRIPTION
 
 Given a parts list and a L<Lego::BrickArchitect> client, annotate every
-part with its label status: covered by the current guide (L</"analyze">)
+part with its label status: covered by the current guide (L</analyze()>)
 or not, and - with C<legacy> - whether the frozen v40 collection carries
 it, down to the drawer it lives in.  Parts missing from the guide index
 are looked up per-page (C<deep>, the default), which is how old part
 numbers such as 3684 resolve to their modern label pages (98560).
 
-Rendering helpers mirror L<Lego::Compare>: L</render_text> for humans
-(including a label-page URL queue to print), L</summary_data> for JSON,
-and L</render_csv> for rows.
+Rendering helpers mirror L<Lego::Compare>:
+L<render_text()|/"render_text(%args)"> for humans (including a
+label-page URL queue to print), L<summary_data()|/"summary_data(%args)">
+for JSON, and L</render_csv()> for rows.
 
 =head1 METHODS
 
@@ -367,11 +368,19 @@ Coverage statistics; the C<pieces> variants are quantity-weighted.
 
 With C<legacy>: { both, guide_only, legacy_only, neither } row lists.
 
-=item summary_data(%args), render_text(%args), render_csv()
+=item summary_data(%args)
 
-Reports.  Pass C<title> to the first two.  render_text ends with the
-label-page URL queue: every covered part normally, or just the
-guide-only gaps in legacy mode (the legacy labels are already printed).
+Report hashref for JSON output; pass C<title>.
+
+=item render_text(%args)
+
+Human report; pass C<title>.  Ends with the label-page URL queue: every
+covered part normally, or just the guide-only gaps in legacy mode (the
+legacy labels are already printed).
+
+=item render_csv()
+
+Row report.
 
 =item csv_escape($field)
 
