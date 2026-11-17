@@ -161,7 +161,7 @@ Workflows in `.github/workflows/`:
 - **editorconfig.yml** - Validates files against `.editorconfig`
 - **gitleaks.yml** - Secret scanning
 - **markdownlint.yml** - Enforces markdown standards using `markdownlint-cli2`
-- **perlcritic.yml** - Lints Perl code with Perl::Critic (advisory baseline, see issue #12) and blocks on `podchecker` POD syntax errors
+- **perlcritic.yml** - Gates the build on Perl::Critic (severity 5 via `.perlcriticrc`; baseline triaged to zero, see issue #12) and `podchecker` POD syntax errors
 - **perl-test.yml** - Runs the Perl test suite
 - **release.yml** - Attaches signed assets (cosign bundle, checksums, SBOM, attestations, SLSA-3 provenance) to `v*` tag releases
 - **renovate-validate.yml** - Validates `.github/renovate.json` config
