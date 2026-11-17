@@ -185,11 +185,13 @@ One deliberate exception to the markdownlint habit: GitHub descriptions - issue 
 ### Perl tools
 
 Perl code lives in `lib/Lego/` (modules), `bin/` (CLI entry points), and
-`t/` (tests). Core modules only - there is no cpanfile and no CPAN
-dependency; the system perl (>= 5.20) is enough. The one wrinkle is that
-HTTPS fetching needs `IO::Socket::SSL` and `Net::SSLeay`, which aren't
-core everywhere; the tools detect that and exit with a message. Perl files
-are tab-indented per `.editorconfig`.
+`t/` (tests). Core modules only - there is no hard CPAN dependency; the
+system perl (>= 5.20) is enough, and the root `cpanfile` declares exactly
+that floor plus `recommends` for the optional SSL modules (it also gives
+prompt tooling like starship something to detect the project as Perl by).
+The one wrinkle is that HTTPS fetching needs `IO::Socket::SSL` and
+`Net::SSLeay`, which aren't core everywhere; the tools detect that and
+exit with a message. Perl files are tab-indented per `.editorconfig`.
 
 There are two CLIs, each a thin layer over a data-source client, a
 `PartsList`, and a pure analysis module:
