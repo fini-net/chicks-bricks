@@ -1,0 +1,49 @@
+---
+name: Perl Critic
+
+# Lints the Perl code with Perl::Critic and the POD with podchecker
+# (issue #12).  perlcritic runs advisory (continue-on-error) until
+# its baseline is triaged; podchecker failures block.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# global permissions
+permissions: {}
+
+jobs:
+  perlcritic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show perl version
+        run: perl -v
+
+      - name: Install Perl::Critic
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libperl-critic-perl
+
+      - name: Run perlcritic
+        # Advisory until the baseline from issue #12 is triaged; drop
+        # continue-on-error to make it blocking once the findings are
+        # fixed or added as .perlcriticrc exceptions.
+        continue-on-error: true
+        run: perlcritic lib t bin/*
+
+      - name: POD syntax check
+        run: podchecker lib/Lego/*.pm bin/*

@@ -279,9 +279,10 @@ Lego::Compare - which colors is a set of parts available in?
 
 Given a hashref of parts, each with the colors it is available in, compute
 the answers that matter when recoloring a model: the colors every part
-shares (L</intersection>), per-color coverage across the parts
-(L</near_misses>), and which parts constrain the palette the most
-(L</bottlenecks>).  All methods are pure; rendering helpers return strings.
+shares (L</intersection()>), per-color coverage across the parts
+(L<near_misses()|/"near_misses($min_pct)">), and which parts constrain
+the palette the most (L</bottlenecks()>).  All methods are pure; rendering
+helpers return strings.
 
 Options at construction: C<exclude_trans> drops transparent colors, and
 C<min_sets> drops colors that appear in fewer than that many sets (a

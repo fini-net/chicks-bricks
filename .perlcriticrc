@@ -1,0 +1,10 @@
+# Perl::Critic profile for chicks-bricks (issue #12, CPAN prep).
+#
+# Severity 5 ("gentle") is the starting gate; the plan is to ratchet
+# toward stern (4) or harsh (3) once the CI baseline is triaged.
+#
+# Tab indentation is mandated by .editorconfig, so this policy loses.
+
+severity = 5
+
+[-CodeLayout::ProhibitHardTabs]

@@ -638,22 +638,22 @@ Answers "is there a Brick Architect label for this part?" across both
 generations of Tom Alphin's label collections.  The current generation is
 the L<LEGO Parts Guide|https://brickarchitect.com/parts/>, where every part
 has a label page (name, category breadcrumb, and a printable C<.lbx>
-download); L<index|"index"> crawls its twelve category pages - thirteen
+download); L</index()> crawls its twelve category pages - thirteen
 requests, cached - to enumerate the ~2900 parts the guide organizes into
 categories.  (The site advertises 5000+ parts overall; the remainder only
 surface through its search, so coverage mode falls back to per-part
-L<part|"part"> lookups for them.)  The legacy generation is the frozen
-L<LEGO Brick Labels v40|https://brickarchitect.com/labels/>
-(December 2023); L<legacy_index|"legacy_index"> downloads its zip once and
-reads the part numbers out of the P-touch documents, which is the only
-complete machine-readable index of the ~1800 legacy labels (the contact
-sheet PDF rasterizes most of them).
+L<part()|/"part($part_num)"> lookups for them.)  The legacy generation is
+the frozen L<LEGO Brick Labels v40|https://brickarchitect.com/labels/>
+(December 2023); L</legacy_index()> downloads its zip once and reads the
+part numbers out of the P-touch documents, which is the only complete
+machine-readable index of the ~1800 legacy labels (the contact sheet PDF
+rasterizes most of them).
 
 Requests follow redirects because the guide canonicalizes old part numbers
-(C</parts/3684> answers from C</parts/98560>); L<part|"part"> reports the
-alias.  Variant numbers are resolved the same way L<Lego::PartsList> does
-against Rebrickable: exact match first, then LDraw/BrickLink suffixes
-stripped (C<3068b> -> C<3068>).
+(C</parts/3684> answers from C</parts/98560>);
+L<part()|/"part($part_num)"> reports the alias.  Variant numbers are
+resolved the same way L<Lego::PartsList> does against Rebrickable: exact
+match first, then LDraw/BrickLink suffixes stripped (C<3068b> -> C<3068>).
 
 B<Etiquette>: every fetch goes through the on-disk cache and nothing is
 re-fetched without C<refresh>; the legacy zip is 20 MB (one download,
