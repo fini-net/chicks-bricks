@@ -385,6 +385,14 @@ sub ba_url {    # category URL for an id, on the default base
 	ok( !exists $ba->part('3023')->{alias}, 'no alias key when numbers agree' );
 	is( $ba->part('no-such-page'), undef, 'missing label page gives undef' );
 
+	# The bare return behind that undef (perlcritic, issue #12) also
+	# means part() answers an empty list in list context - unlike the
+	# old "return undef", which was a one-element true list.
+	# Test::More's is() forces scalar context through its ($$;$)
+	# prototype, so pin the list side of the contract here.
+	my @missing = $ba->part('no-such-page');
+	is( scalar @missing, 0, 'missing page is an empty list, not (undef)' );
+
 	eval { $ba->part('3684/colors') };
 	like( $@, qr/invalid part number/, 'part number with a slash dies' );
 	is( $ua->request_count("$BASE/parts/3684/colors"), 0,
