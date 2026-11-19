@@ -25,3 +25,14 @@ list:
 [group('Test')]
 test:
     prove -lr t/
+
+# build the CPAN tarball and prove it offline from a pristine extract
+# (issue #12 step 4; ExtUtils::MakeMaker ships with perl)
+[group('Test')]
+disttest:
+    perl Makefile.PL
+    make manifest
+    rm -f Lego-Tools-*.tar.gz
+    make dist
+    make disttest
+    make realclean
