@@ -35,13 +35,13 @@ test:
 # (issue #12, step 1).
 [group('Test')]
 disttest:
-    #!/bin/bash
+    #!/usr/bin/env bash
     set -euo pipefail
     trap 'make realclean >/dev/null 2>&1 || true' EXIT
     perl Makefile.PL
     make manifest
     if ! git diff --exit-code HEAD -- MANIFEST; then
-        echo "MANIFEST drifted: commit the regenerated version (diff above)" >&2
+        echo "MANIFEST drifted from HEAD: review the diff above - either commit the regenerated MANIFEST, or remove the stray file that caused it" >&2
         exit 1
     fi
     rm -f Lego-Tools-*.tar.gz
