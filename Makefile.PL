@@ -1,4 +1,5 @@
-# Makefile.PL - Lego::Tools distribution scaffolding (issue #12 step 4).
+# Makefile.PL - Lego-Tools distribution scaffolding (issue #12, step 4:
+# https://github.com/fini-net/chicks-bricks/issues/12).
 #
 # ExtUtils::MakeMaker on purpose: it has been core since the '90s,
 # which matches this repo's core-modules-only ethos, and it is all a
