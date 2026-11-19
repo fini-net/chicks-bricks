@@ -42,3 +42,4 @@ t/live/api.t
 t/live/brickarchitect.t
 t/moc61370.t
 t/pod-drift.t
+t/version-sync.t
