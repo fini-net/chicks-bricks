@@ -27,3 +27,9 @@ jobs:
       run: perl -v
     - name: Run tests
       run: prove -lr t/
+    - name: CPAN packaging (offline disttest + MANIFEST drift check)
+      run: |
+        perl Makefile.PL
+        make manifest
+        git diff --exit-code MANIFEST
+        make disttest

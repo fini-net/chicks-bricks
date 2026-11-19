@@ -26,13 +26,20 @@ list:
 test:
     prove -lr t/
 
-# build the CPAN tarball and prove it offline from a pristine extract
-# (issue #12 step 4; ExtUtils::MakeMaker ships with perl)
+# build the CPAN tarball and prove it offline from a pristine extract;
+# fail loudly if the committed MANIFEST has drifted (issue #12 step 4;
+# ExtUtils::MakeMaker ships with perl)
 [group('Test')]
 disttest:
+    #!/bin/bash
+    set -euo pipefail
+    trap 'make realclean >/dev/null 2>&1 || true' EXIT
     perl Makefile.PL
     make manifest
+    if ! git diff --exit-code MANIFEST; then
+        echo "MANIFEST drifted: commit the regenerated version (diff above)" >&2
+        exit 1
+    fi
     rm -f Lego-Tools-*.tar.gz
     make dist
     make disttest
-    make realclean
