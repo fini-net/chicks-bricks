@@ -31,6 +31,27 @@ WriteMakefile(
 		'bin/part-colors',
 		'bin/brick-labels',
 	],
+	# Everything below ships in the perl core on the minimum supported
+	# perl, so none of it is a hard CPAN dependency; declaring it
+	# anyway means a stripped-down perl (container images, distro
+	# perl-base installs) resolves anything missing from CPAN instead
+	# of failing at runtime.  This list mirrors the actual use lines in
+	# lib/ and bin/ (added after review feedback on PR #19).
+	PREREQ_PM         => {
+		'Digest::SHA'           => 0,
+		'Encode'                => 0,
+		'File::Path'            => 0,
+		'File::Spec'            => 0,
+		'FindBin'               => 0,
+		'Getopt::Long'          => 0,
+		'HTTP::Tiny'            => 0,
+		'IO::Uncompress::Unzip' => 0,
+		'JSON::PP'              => 0,
+		'List::Util'            => 0,
+		'Pod::Usage'            => 0,
+		'Scalar::Util'          => 0,
+		'Time::HiRes'           => 0,
+	},
 	# Test::More ships with perl, but declaring it is standard practice
 	# and mirrors the cpanfile's test_requires.
 	TEST_REQUIRES      => {

@@ -28,7 +28,11 @@ test:
 
 # build the CPAN tarball and prove it offline from a pristine extract;
 # fail loudly if the committed MANIFEST has drifted (issue #12 step 4;
-# ExtUtils::MakeMaker ships with perl)
+# ExtUtils::MakeMaker ships with perl).  The packaging step in
+# .github/workflows/perl-test.yml mirrors this recipe; keep the two in
+# sync deliberately - CI does not install just for this, for the same
+# no-third-party-tooling reason this repo hand-rolls perlcritic
+# (issue #12, step 1).
 [group('Test')]
 disttest:
     #!/bin/bash
@@ -36,7 +40,7 @@ disttest:
     trap 'make realclean >/dev/null 2>&1 || true' EXIT
     perl Makefile.PL
     make manifest
-    if ! git diff --exit-code MANIFEST; then
+    if ! git diff --exit-code HEAD -- MANIFEST; then
         echo "MANIFEST drifted: commit the regenerated version (diff above)" >&2
         exit 1
     fi
