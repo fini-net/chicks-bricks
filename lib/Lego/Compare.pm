@@ -328,4 +328,20 @@ Human and CSV reports; C<render_text> takes C<title> and C<min_coverage>.
 
 L<Lego::Rebrickable>, L<Lego::PartsList>
 
+=head1 AUTHOR
+
+Christopher Hicks, E<lt>chicks@chicks.netE<gt>
+
+=head1 BUGS AND SUPPORT
+
+Bugs, feature requests, and questions all go to the GitHub issue
+tracker: L<https://github.com/fini-net/chicks-bricks/issues>.
+
+=head1 LICENSE
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the GNU General Public License, version 2, as
+published by the Free Software Foundation.  See the LICENSE file in
+this distribution for the full license text.
+
 =cut
