@@ -9,6 +9,11 @@ use warnings;
 
 use Exporter qw(import);
 
+# The distro versions all its modules together (issue #12); this was
+# the one package without a version, so PAUSE would not have indexed
+# it consistently with its siblings.
+our $VERSION = '0.01';
+
 our @EXPORT_OK = qw($MOC_ISSUE_URL $SAFE_NUMBER);
 
 # Rebrickable removed the MOC endpoints from API v3 on 2020-04-19
