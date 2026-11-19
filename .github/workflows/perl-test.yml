@@ -27,3 +27,12 @@ jobs:
       run: perl -v
     - name: Run tests
       run: prove -lr t/
+    # Mirrors the justfile "disttest" recipe; keep the two in sync
+    # deliberately (CI does not install just for this - same
+    # no-third-party-tooling reasoning as the perlcritic job).
+    - name: CPAN packaging (offline disttest + MANIFEST drift check)
+      run: |
+        perl Makefile.PL
+        make manifest
+        git diff --exit-code HEAD -- MANIFEST
+        make disttest

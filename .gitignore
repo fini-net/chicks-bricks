@@ -42,3 +42,15 @@ go.work.sum
 /.opencode/plans/
 /.opencode/bun.lock
 /.opencode/package.json
+
+# ExtUtils::MakeMaker build artifacts (see Makefile.PL, issue #12)
+/Makefile
+/MYMETA.json
+/MYMETA.yml
+/META.json
+/META.yml
+/pm_to_blib
+/blib/
+/MANIFEST.bak
+/Lego-Tools-*.tar.gz
+/Lego-Tools-*/
