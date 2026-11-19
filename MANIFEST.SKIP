@@ -1,0 +1,43 @@
+# MANIFEST.SKIP - what never ships in the Lego-Tools tarball (issue
+# #12 step 4).  The distro is the software, the tests with their
+# fixtures, and the docs users read; repo scaffolding stays home.
+#
+# Everything from here down is regex, one per line, matched against
+# paths relative to the repo root.
+
+# version control, CI, and AI tooling
+^\.git
+^\.github/
+^\.claude/
+^\.opencode/
+^\.cache/
+^\.repo\.toml$
+^\.gitattributes$
+^\.gitignore$
+^CLAUDE\.md$
+
+# lint and template machinery (template-derived, not distro material)
+^\.just/
+^\.editorconfig$
+^\.editorconfig-checker\.json$
+^\.pre-commit-config\.yaml$
+^\.markdownlint
+^\.perlcriticrc$
+^zizmor\.yml$
+^justfile$
+^docs/
+
+# runtime data: the response cache lives here, and .env holds
+# REBRICKABLE_API_KEY - neither may ever reach a tarball
+^\.env$
+^data/
+
+# ExtUtils::MakeMaker build artifacts
+^Makefile$
+^MYMETA\.
+^META\.
+^blib/
+^pm_to_blib$
+^MANIFEST\.bak$
+^Lego-Tools-
+^\.DS_Store$
