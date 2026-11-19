@@ -35,8 +35,11 @@ WriteMakefile(
 	# perl, so none of it is a hard CPAN dependency; declaring it
 	# anyway means a stripped-down perl (container images, distro
 	# perl-base installs) resolves anything missing from CPAN instead
-	# of failing at runtime.  This list mirrors the actual use lines in
-	# lib/ and bin/ (added after review feedback on PR #19).
+	# of failing at runtime.  This list mirrors the substantive use
+	# lines in lib/ and bin/; pragmata and near-universal helpers
+	# (Carp, Exporter) are deliberately left out, because a perl that
+	# lacks those is broken far beyond what this distro could fix
+	# (added after review feedback on PR #19).
 	PREREQ_PM         => {
 		'Digest::SHA'           => 0,
 		'Encode'                => 0,
