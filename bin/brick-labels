@@ -27,7 +27,8 @@ binmode STDOUT, ':encoding(UTF-8)';
 # is not valid UTF-8 (a stray latin-1 paste) stays as-is.
 {
 	use Encode qw(decode FB_CROAK);
-	@ARGV = map {
+	# Rewriting @ARGV in place is the point: GetOptions reads it next.
+	@ARGV = map {    ## no critic (RequireLocalizedPunctuationVars)
 		my $decoded = eval { decode( 'UTF-8', $_, FB_CROAK ) };
 		defined $decoded ? $decoded : $_;
 	} @ARGV;
@@ -256,8 +257,6 @@ sub uniq_keys {
 	}
 	return @keys;
 }
-
-exit 0;
 
 __END__
 
