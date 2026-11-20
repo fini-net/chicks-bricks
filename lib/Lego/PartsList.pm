@@ -24,10 +24,12 @@ sub from_file {
 	croak 'from_file: no path given' if !defined $path;
 	open my $fh, '<:encoding(UTF-8)', $path
 		or croak "cannot open parts file '$path': $!";
+	my @lines = <$fh>;
+	close $fh;
 	my @rows;
 	my $saw_header = 0;
 	my $line_no    = 0;
-	while ( my $line = <$fh> ) {
+	for my $line (@lines) {
 		$line_no++;
 		$line =~ s/\r?\n\z//;
 		next if $line =~ m{\A\s*\z} || $line =~ m{\A\s*#};
@@ -58,7 +60,6 @@ sub from_file {
 			( defined $color ? ( color => $color ) : () ),
 		};
 	}
-	close $fh;
 	croak "no parts found in '$path'" if !@rows;
 	return $class->aggregate( \@rows );
 }

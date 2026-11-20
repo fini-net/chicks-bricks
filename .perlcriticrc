@@ -1,10 +1,21 @@
 # Perl::Critic profile for chicks-bricks (issue #12, CPAN prep).
 #
-# Severity 5 ("gentle") is the starting gate; the plan is to ratchet
-# toward stern (4) or harsh (3) once the CI baseline is triaged.
+# Severity 5 ("gentle") was the starting gate; once its baseline was
+# triaged to zero the profile ratcheted to stern (4).  Harsh (3) is a
+# possible future step.
 #
 # Tab indentation is mandated by .editorconfig, so this policy loses.
 
-severity = 5
+severity = 4
 
 [-CodeLayout::ProhibitHardTabs]
+
+# One-statement accessors like `sub part_count { scalar @{ $_[0]->analyze } }`
+# are idiomatic; unpacking @_ there adds a line and no clarity.
+[Subroutines::RequireArgUnpacking]
+short_subroutine_statements = 1
+
+# Test mocks swap methods in with `local *Pkg::method = sub {...}`, which
+# needs `no warnings 'redefine'`.  Every other category still counts.
+[TestingAndDebugging::ProhibitNoWarnings]
+allow = redefine

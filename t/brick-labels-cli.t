@@ -30,8 +30,9 @@ sub fixture {
 	open my $fh, '<',
 		File::Spec->catfile( 't', 'fixtures', 'brickarchitect', $name )
 		or die "cannot read fixture '$name': $!";
-	local $/;
-	return <$fh>;
+	my $bytes = do { local $/; <$fh> };
+	close $fh;
+	return $bytes;
 }
 
 # A part page with a comma in the name, to prove CSV quoting survives the
@@ -114,6 +115,7 @@ sub run_cli {
 	open my $err, '>', $err_file or die "cannot open $err_file: $!";
 	open my $saved_stderr, '>&', STDERR or die "cannot dup stderr: $!";
 	open STDERR, '>&', $err or die "cannot redirect stderr: $!";
+	close $err;    # STDERR holds its own dup of the fd now
 	my $ok = open my $ph, '-|', $^X, $BIN, @args, '--offline',
 		'--cache-dir', "$dir";
 	open STDERR, '>&', $saved_stderr or die "cannot restore stderr: $!";
@@ -122,13 +124,13 @@ sub run_cli {
 	local $/;
 	my $out = <$ph>;
 	close $ph;
-	close $err;
 	my $exit = $? >> 8;
 	$out = decode( 'UTF-8', defined $out ? $out : q{} );
 	my $stderr = do {
 		open my $ef, '<', $err_file or die "cannot read $err_file: $!";
-		local $/;
-		decode( 'UTF-8', <$ef> // q{} );
+		my $raw = do { local $/; <$ef> };
+		close $ef;
+		decode( 'UTF-8', $raw // q{} );
 	};
 	return ( $exit, $out, $stderr );
 }
