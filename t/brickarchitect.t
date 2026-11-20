@@ -62,8 +62,9 @@ sub fixture {
 	open my $fh, '<',
 		File::Spec->catfile( 't', 'fixtures', 'brickarchitect', $name )
 		or die "cannot read fixture '$name': $!";
-	local $/;
-	return <$fh>;
+	my $bytes = do { local $/; <$fh> };
+	close $fh;
+	return $bytes;
 }
 
 sub decoded_fixture {
@@ -75,8 +76,8 @@ sub decoded_fixture {
 # each .lbx is itself a zip holding a label.xml that names its part
 # images after part numbers.
 sub legacy_zip_bytes {
-	require IO::Compress::Zip;
 	my %args = @_;
+	require IO::Compress::Zip;
 
 	my $mk_lbx = sub {
 		my ($xml) = @_;
@@ -554,7 +555,7 @@ sub ba_url {    # category URL for an id, on the default base
 # --- server errors die with the status; missing SSL says so ---------------------
 {
 	{
-		package ServerErrorUa;
+		package ServerErrorUa;    ## no critic (ProhibitMultiplePackages) -- test mock
 		sub new { return bless { requests => [] }, shift }
 		sub get {
 			my ( $self, $url ) = @_;
@@ -572,7 +573,7 @@ sub ba_url {    # category URL for an id, on the default base
 
 	# HTTP::Tiny's 599 with no SSL stack: name the fix instead of the code
 	{
-		package SsllessUa;
+		package SsllessUa;    ## no critic (ProhibitMultiplePackages) -- test mock
 		sub new { return bless {}, shift }
 		sub get {
 			return { success => 0, status => 599, reason => 'Internal Exception',

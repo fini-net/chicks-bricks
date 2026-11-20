@@ -39,7 +39,7 @@ use Lego::Rebrickable;
 # A transport whose every request fails with 403, like the removed MOC
 # endpoints described in https://github.com/fini-net/chicks-bricks/issues/2.
 {
-	package ForbiddenUa;
+	package ForbiddenUa;    ## no critic (ProhibitMultiplePackages) -- test mock
 
 	sub new { return bless { requests => [] }, shift }
 

@@ -52,8 +52,9 @@ sub fixture {
 	open my $fh, '<',
 		File::Spec->catfile( 't', 'fixtures', 'brickarchitect', $name )
 		or die "cannot read fixture '$name': $!";
-	local $/;
-	return <$fh>;
+	my $bytes = do { local $/; <$fh> };
+	close $fh;
+	return $bytes;
 }
 
 # A legacy zip with a drawer for 3684 and one holding the 3068b variant.
