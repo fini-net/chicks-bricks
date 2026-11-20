@@ -50,7 +50,7 @@ ok( !exists $part->{alias}, 'non-redirected numbers report no alias' );
 # The category pages hold the guide's ~2900 organized parts (the "5000+"
 # figure on the site also counts parts that only surface through search,
 # which coverage mode resolves per-part).
-my $index = $ba->index;
+my $index = $ba->guide_index;
 cmp_ok( scalar keys %{$index}, '>', 2500,
 	'index covers the categorized guide (the site says 2500+)' );
 ok( $index->{'3023'}, 'a known part is in the index' );

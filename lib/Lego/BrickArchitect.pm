@@ -207,9 +207,9 @@ sub category_url {
 # (13 requests) per process, and not at all across runs thanks to the
 # cache.  Parts that live outside the category system (the guide's search
 # knows more than its categories list) are reachable through part().
-sub index {    ## no critic (ProhibitBuiltinHomonyms) -- public API name
+sub guide_index {
 	my ($self) = @_;
-	return $self->{_index} //= do {
+	return $self->{_guide_index} //= do {
 		my %index;
 		for my $cat ( @{ $self->categories } ) {
 			my $html = $self->get( $self->category_url( $cat->{id} ) );
@@ -241,7 +241,7 @@ sub index {    ## no critic (ProhibitBuiltinHomonyms) -- public API name
 # Returns the index row (which includes part_num) or undef.
 sub index_lookup {
 	my ( $self, $num ) = @_;
-	return $self->_lookup( $num, $self->index );
+	return $self->_lookup( $num, $self->guide_index );
 }
 
 # One part's label page, fetched fresh (from the network or the cache).
@@ -313,7 +313,7 @@ sub search {
 	my @hits = grep {
 		( defined $_->{name} && lc( $_->{name} ) =~ $re )
 			|| ( lc( $_->{part_num} ) =~ $re )
-	} values %{ $self->index };
+	} values %{ $self->guide_index };
 	return [ sort { $a->{part_num} cmp $b->{part_num} } @hits ];
 }
 
@@ -626,7 +626,7 @@ Lego::BrickArchitect - label lookups against Tom Alphin's Brick Architect
 
 	my $row  = $ba->part('3684');        # label page; alias => '98560'
 	my @hits = @{ $ba->search('bracket') };
-	my $all  = $ba->index;               # every part in the guide
+	my $all  = $ba->guide_index;         # every part in the guide
 
 	# the frozen 2023 collection: drawers for folks who printed v40
 	my $legacy = $ba->legacy_lookup('3684');   # { category, group }
@@ -638,7 +638,7 @@ Answers "is there a Brick Architect label for this part?" across both
 generations of Tom Alphin's label collections.  The current generation is
 the L<LEGO Parts Guide|https://brickarchitect.com/parts/>, where every part
 has a label page (name, category breadcrumb, and a printable C<.lbx>
-download); L</index()> crawls its twelve category pages - thirteen
+download); L</guide_index()> crawls its twelve category pages - thirteen
 requests, cached - to enumerate the ~2900 parts the guide organizes into
 categories.  (The site advertises 5000+ parts overall; the remainder only
 surface through its search, so coverage mode falls back to per-part
@@ -692,7 +692,7 @@ C<599>.
 The guide's categories as [{ id, name }], discovered from the C</parts/>
 index page so new categories appear automatically.
 
-=item index()
+=item guide_index()
 
 Hashref of every part the guide has organized into a category (~2900
 rows): part_num => { part_num, name, category, subcategory, group, url,

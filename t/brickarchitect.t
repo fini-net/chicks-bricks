@@ -201,7 +201,7 @@ sub legacy_zip_bytes {
 	# every part is "listed twice" - which exercises the duplicate warning.
 	my $warnings = q{};
 	local $SIG{__WARN__} = sub { $warnings .= $_[0] };
-	my $index = $ba->index;
+	my $index = $ba->guide_index;
 	is( scalar keys %{$index}, 9, 'index holds the fixture parts once each' );
 	like( $warnings, qr/part 3005 listed in both Basic and Basic - keeping the first/,
 		'a part listed twice warns and keeps the first' );
