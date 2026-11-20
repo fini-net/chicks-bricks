@@ -2,9 +2,9 @@
 name: Perl Critic
 
 # Lints the Perl code with Perl::Critic and the POD with podchecker
-# (issue #12).  Both gate the build: the severity-5 perlcritic
-# baseline was triaged to zero findings in issue #12 step 2, and
-# podchecker failures block from day one.
+# (issue #12).  Both gate the build: perlcritic runs at severity 4
+# (ratcheted up after the severity-5 baseline was triaged to zero in
+# issue #12 step 2), and podchecker failures block from day one.
 
 on:
   push:
@@ -40,8 +40,8 @@ jobs:
           sudo apt-get install -y libperl-critic-perl
 
       - name: Run perlcritic
-        # Severity 5 (.perlcriticrc); the baseline was triaged to zero
-        # in issue #12, so findings block the build again.
+        # Severity 4 (.perlcriticrc): stern, ratcheted up from 5 once the
+        # gentle baseline was triaged to zero in issue #12.  Findings block.
         run: perlcritic lib t bin/*
 
       - name: POD syntax check
