@@ -207,7 +207,7 @@ sub category_url {
 # (13 requests) per process, and not at all across runs thanks to the
 # cache.  Parts that live outside the category system (the guide's search
 # knows more than its categories list) are reachable through part().
-sub index {
+sub index {    ## no critic (ProhibitBuiltinHomonyms) -- public API name
 	my ($self) = @_;
 	return $self->{_index} //= do {
 		my %index;
