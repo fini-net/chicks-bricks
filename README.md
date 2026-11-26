@@ -137,3 +137,8 @@ exit if they are missing.
 
 - [Getting Support](.github/SUPPORT.md)
 - [Security Policy](.github/SECURITY.md)
+
+## Trademarks
+
+LEGO® is a trademark of the LEGO Group of companies which does not
+sponsor, authorize or endorse this project.

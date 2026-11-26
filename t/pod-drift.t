@@ -1,8 +1,9 @@
 #!/usr/bin/env perl
-# The AUTHOR / BUGS AND SUPPORT / LICENSE POD sections are duplicated in
-# every module and CLI, and silent drift there would mean files claiming
-# different license terms or contacts.  Lock them all to one canonical
-# block.  (Guard added after Claude review feedback on issue #12.)
+# The AUTHOR / BUGS AND SUPPORT / LICENSE / TRADEMARKS POD sections are
+# duplicated in every module and CLI, and silent drift there would mean
+# files claiming different license terms, contacts, or trademark
+# attribution.  Lock them all to one canonical block.  (Guard added after
+# Claude review feedback on issue #12.)
 
 use strict;
 use warnings;
@@ -40,12 +41,14 @@ for my $file (@files) {
 my $canonical = $block{ $files[0] };
 defined $canonical or BAIL_OUT("no AUTHOR boilerplate found in $files[0]");
 
-for my $heading ( 'AUTHOR', 'BUGS AND SUPPORT', 'LICENSE' ) {
+for my $heading ( 'AUTHOR', 'BUGS AND SUPPORT', 'LICENSE', 'TRADEMARKS' ) {
 	like( $canonical, qr/^=head1 \Q$heading\E$/m,
 		"canonical block has a $heading section" );
 }
 like( $canonical, qr/GNU General Public License, version 2/,
 	'canonical block states GPL version 2' );
+like( $canonical, qr/trademark of the LEGO Group of companies/,
+	'canonical block acknowledges the LEGO trademark' );
 
 for my $file (@files) {
 	ok( defined $block{$file},
