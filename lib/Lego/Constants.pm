@@ -30,6 +30,8 @@ our $SAFE_NUMBER = qr{\A[\w.-]+\z};
 
 __END__
 
+=encoding UTF-8
+
 =head1 NAME
 
 Lego::Constants - shared constants for the Lego:: modules
@@ -60,5 +62,10 @@ This is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2, as published
 by the Free Software Foundation.  See the LICENSE file in this
 distribution for the full license text.
+
+=head1 TRADEMARKS
+
+LEGO® is a trademark of the LEGO Group of companies which does not
+sponsor, authorize or endorse this software.
 
 =cut

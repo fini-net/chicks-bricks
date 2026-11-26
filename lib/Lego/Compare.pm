@@ -259,6 +259,8 @@ sub render_csv {
 
 __END__
 
+=encoding UTF-8
+
 =head1 NAME
 
 Lego::Compare - which colors is a set of parts available in?
@@ -343,5 +345,10 @@ This is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2, as published
 by the Free Software Foundation.  See the LICENSE file in this
 distribution for the full license text.
+
+=head1 TRADEMARKS
+
+LEGO® is a trademark of the LEGO Group of companies which does not
+sponsor, authorize or endorse this software.
 
 =cut
