@@ -1,0 +1,31 @@
+# .github/codecov.yml - Codecov configuration for chicks-bricks
+#
+# Statuses are informational only: every PR gets the coverage comment
+# and the status checks, but nothing ever blocks a merge - the numbers
+# only become useful once main has its first upload. Flip the
+# informational flags off if coverage gating is ever wanted (the
+# perlcritic severity ratchet in issue #12 is the model for doing that
+# gradually).
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+# t/ is already excluded at collection time (+ignore,^t/ in the
+# coverage workflow); listed here too so fixture churn can never skew
+# the numbers. generate-rebrickable-fixtures is a dev utility that
+# only runs against the live API, so CI never exercises it.
+ignore:
+  - "t"
+  - "examples"
+  - "bin/generate-rebrickable-fixtures"

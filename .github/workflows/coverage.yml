@@ -1,0 +1,64 @@
+name: Perl Coverage
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+# global permissions
+permissions: {}
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # OIDC instead of a stored CODECOV_TOKEN: the Codecov GitHub app
+      # is installed on fini-net, so the runner swaps its short-lived
+      # OIDC token for upload auth and no secret is ever persisted.
+      # Fork PRs are detected by the action itself and upload tokenless.
+      id-token: write
+    steps:
+    - name: Harden the runner (Audit all outbound calls)
+      uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+      with:
+        egress-policy: audit
+
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Show perl version
+      run: perl -v
+    # Coverage is the one place the "core modules only" rule bends, and
+    # only inside CI - the tools in bin/ stay dependency-free. Everything
+    # with an XS component (Devel::Cover's HTML::Entities, the Template
+    # Toolkit, HTML::Parser, Class::Accessor) comes prebuilt from Ubuntu
+    # so nothing compiles from CPAN; cpanm only installs the pure-Perl
+    # Clover reporter, whose XML is the format Codecov parses.
+    - name: Install coverage tooling
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y --no-install-recommends cpanminus \
+            libdevel-cover-perl libhtml-parser-perl libtemplate-perl \
+            libclass-accessor-perl
+        sudo cpanm -n Devel::Cover::Report::Clover
+    # PERL5OPT rather than HARNESS_PERL_SWITCHES: t/brick-labels-cli.t
+    # spawns `$^X bin/brick-labels` as a child process, and the
+    # environment variable propagates where a harness switch would not -
+    # so the CLI is instrumented along with lib/. t/ itself is excluded
+    # at collection time (+ignore,^t/) and again in .github/codecov.yml;
+    # prove$ keeps the harness out of the database (PERL5OPT
+    # instruments every perl process, including /usr/bin/prove itself).
+    - name: Run tests under coverage
+      run: PERL5OPT="-MDevel::Cover=+ignore,^t/,prove$" prove -lr t/
+    - name: Generate reports
+      run: |
+        cover -report=text
+        cover -report=clover -projectname Lego-Tools
+    - name: Upload to Codecov (OIDC)
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      with:
+        use_oidc: true
+        files: cover_db/clover.xml
