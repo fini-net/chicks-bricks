@@ -43,6 +43,9 @@ go.work.sum
 /.opencode/bun.lock
 /.opencode/package.json
 
+# Devel::Cover database (just cover, .github/workflows/coverage.yml)
+/cover_db/
+
 # ExtUtils::MakeMaker build artifacts (see Makefile.PL, issue #12)
 /Makefile
 /MYMETA.json

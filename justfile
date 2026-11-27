@@ -26,6 +26,29 @@ list:
 test:
     prove -lr t/
 
+# run the perl test suite under Devel::Cover: text summary here, full
+# annotated HTML report in cover_db/coverage.html.  CI's coverage job
+# (.github/workflows/coverage.yml) uses this same invocation and uploads
+# the clover XML to Codecov.  Needs `cpanm Devel::Cover
+# Devel::Cover::Report::Clover` - the recipe detects its absence and
+# exits with that hint (the same detect-and-explain pattern the tools
+# use for IO::Socket::SSL).
+# run the suite under Devel::Cover, report to cover_db/ (text + HTML)
+[group('Test')]
+cover:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! perl -MDevel::Cover -e1 >/dev/null 2>&1; then
+        echo "Devel::Cover is not installed. Coverage needs it plus the Clover reporter:" >&2
+        echo "    cpanm Devel::Cover Devel::Cover::Report::Clover" >&2
+        exit 1
+    fi
+    rm -rf cover_db
+    PERL5OPT="-MDevel::Cover=+ignore,^t/,prove$" prove -lr t/
+    cover -report=text
+    cover -report=html
+    echo "{{GREEN}}open cover_db/coverage.html for the annotated report{{NORMAL}}"
+
 # build the CPAN tarball and prove it offline from a pristine extract;
 # fail loudly if the committed MANIFEST has drifted (issue #12 step 4;
 # ExtUtils::MakeMaker ships with perl).  The packaging step in

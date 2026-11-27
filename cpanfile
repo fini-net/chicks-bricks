@@ -16,3 +16,12 @@ recommends 'IO::Socket::SSL';
 recommends 'Net::SSLeay';
 
 test_requires 'Test::More';
+
+# Coverage tooling for the CI coverage job (.github/workflows/
+# coverage.yml) and `just cover` - a develop-time concern only, so it
+# lives in its own phase rather than next to the runtime recommends
+# above.
+on 'develop' => sub {
+	recommends 'Devel::Cover';
+	recommends 'Devel::Cover::Report::Clover';
+};

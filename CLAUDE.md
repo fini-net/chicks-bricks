@@ -37,6 +37,7 @@ This repo uses `just` (command runner) for all development tasks. The workflow i
 
 - `just` or `just list` - Show all available recipes
 - `just test` - Run the Perl test suite (see [Perl tools](#perl-tools))
+- `just cover` - Run the suite under Devel::Cover for a coverage report (see [Perl tools](#perl-tools))
 - `just claude` - Launch Claude Code in the repo root
 - `just prweb` - Open current PR in browser
 - `just again` - Push changes, update PR description, and watch GHAs
@@ -156,6 +157,7 @@ Workflows in `.github/workflows/`:
 - **checkov.yml** - Security scanning for GitHub Actions (continues on error, outputs SARIF)
 - **claude-code-review.yml** - Claude AI review automation on PRs
 - **claude.yml** - Claude integration for `@claude` mentions and issue/PR events
+- **coverage.yml** - Devel::Cover run plus Codecov upload via OIDC auth (the installed Codecov GitHub app replaces a stored token)
 - **cue-verify.yml** - Validates `.repo.toml` format and flags
 - **dependency-review.yml** - Scans dependency changes in PRs for known vulnerabilities
 - **editorconfig.yml** - Validates files against `.editorconfig`
@@ -191,7 +193,11 @@ that floor plus `recommends` for the optional SSL modules (it also gives
 prompt tooling like starship something to detect the project as Perl by).
 The one wrinkle is that HTTPS fetching needs `IO::Socket::SSL` and
 `Net::SSLeay`, which aren't core everywhere; the tools detect that and
-exit with a message. Perl files are tab-indented per `.editorconfig`.
+exit with a message. Coverage is the lone dev-side exception:
+`Devel::Cover` and `Devel::Cover::Report::Clover` (the `cpanfile`'s
+`develop` phase) power the coverage job and `just cover`, but nothing
+shipped in `bin/` or `lib/` needs them. Perl files are tab-indented per
+`.editorconfig`.
 
 There are two CLIs, each a thin layer over a data-source client, a
 `PartsList`, and a pure analysis module:
@@ -235,6 +241,11 @@ Testing:
 - One file: `prove -l t/label-coverage.t` (add `-v` for per-test output)
 - `t/brick-labels-cli.t` runs the actual script end to end against a cache
   pre-seeded from fixtures; CLI output bugs only show up there
+- `just cover` runs the suite under Devel::Cover: text summary in the
+  terminal, annotated HTML report at `cover_db/coverage.html` (`cover_db/`
+  is gitignored and MANIFEST.SKIPped). CI's coverage job
+  (`.github/workflows/coverage.yml`) runs the same invocation and uploads
+  the clover XML to Codecov via OIDC - no stored token
 - Live smoke tests in `t/live/` skip by default:
   `LIVE_API=1 REBRICKABLE_API_KEY=... prove -l t/live/api.t`,
   `LIVE_API=1 prove -l t/live/brickarchitect.t` (add `LIVE_LEGACY=1` to

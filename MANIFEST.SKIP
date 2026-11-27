@@ -32,6 +32,9 @@
 ^\.env$
 ^data/
 
+# Devel::Cover database written by the coverage job and just cover
+^cover_db/
+
 # ExtUtils::MakeMaker build artifacts
 ^Makefile$
 ^MYMETA\.
